@@ -1,0 +1,167 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="How to Use Wall-E" Height="720" Width="560"
+        MinHeight="400" MinWidth="420"
+        WindowStartupLocation="CenterOwner"
+        Background="#0C0C10">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="PanelBrush" Color="#16161B"/>
+        <SolidColorBrush x:Key="BorderBrush2" Color="#2A2A30"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#D8A94A"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#E8E8E8"/>
+        <SolidColorBrush x:Key="MutedTextBrush" Color="#8C8C94"/>
+        <SolidColorBrush x:Key="KeyBrush" Color="#39FF7A"/>
+
+        <!-- Section heading -->
+        <Style TargetType="TextBlock" x:Key="H2">
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,18,0,6"/>
+        </Style>
+        <!-- Body paragraph -->
+        <Style TargetType="TextBlock" x:Key="Body">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+        </Style>
+        <!-- Monospace key chip look -->
+        <Style TargetType="Border" x:Key="KeyChip">
+            <Setter Property="Background" Value="#12180F"/>
+            <Setter Property="BorderBrush" Value="#2E4A2E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="6,1"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="TextBlock" x:Key="KeyText">
+            <Setter Property="Foreground" Value="{StaticResource KeyBrush}"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+        <Style TargetType="TextBlock" x:Key="KeyDesc">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="22,20,22,10">
+            <StackPanel>
+
+                <TextBlock Text="W A L L - E" FontFamily="Consolas" FontSize="24" FontWeight="Bold" Foreground="{StaticResource KeyBrush}">
+                    <TextBlock.Effect>
+                        <DropShadowEffect Color="#39FF7A" BlurRadius="16" ShadowDepth="0" Opacity="0.85"/>
+                    </TextBlock.Effect>
+                </TextBlock>
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource MutedTextBrush}"
+                           Text="Turn folders of movie snapshots into a browsable, remote-controllable desktop wallpaper."/>
+
+                <!-- ============ GETTING STARTED ============ -->
+                <TextBlock Style="{StaticResource H2}" Text="1 · Get your snapshots ready"/>
+                <TextBlock Style="{StaticResource Body}" Text="Wall-E reads a single &quot;library&quot; folder that holds one subfolder per movie (or per theme). Put the image snapshots inside each subfolder:"/>
+                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,8,0,0">
+                    <TextBlock FontFamily="Consolas" FontSize="12" Foreground="{StaticResource MutedTextBrush}" TextWrapping="NoWrap"><Run Text="My Snapshots\      "/><LineBreak/><Run Text="   Interstellar\   "/><LineBreak/><Run Text="      shot01.jpg"/><LineBreak/><Run Text="      shot02.jpg"/><LineBreak/><Run Text="   Blade Runner\   "/><LineBreak/><Run Text="      frame01.png"/><LineBreak/><Run Text="      frame02.png"/></TextBlock>
+                </Border>
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0"
+                           Text="Supported: .jpg .jpeg .png .bmp .webp  (WebP is auto-converted if ffmpeg is on your PATH)."/>
+
+                <TextBlock Style="{StaticResource H2}" Text="2 · Point Wall-E at that folder"/>
+                <TextBlock Style="{StaticResource Body}" Text="Click  Browse…  and pick your library folder (&quot;My Snapshots&quot; above — the parent, not an individual movie). Wall-E scans it, lists every subfolder that contains images, and sets the first image as your wallpaper. Your choice and your exact position are remembered next time you open the app."/>
+
+                <TextBlock Style="{StaticResource H2}" Text="3 · Browse &amp; set wallpapers"/>
+                <TextBlock Style="{StaticResource Body}" Text="Step through images and folders with the on-screen arrows or the keyboard. Every image you land on becomes your desktop wallpaper instantly. Pick a fit mode (Fit / Fill / Stretch / Center) and a wallpaper style to taste."/>
+
+                <TextBlock Style="{StaticResource H2}" Text="4 · Let it play (optional)"/>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• "/><Run Text="Slideshow" Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/><Run Text=" — timed autoplay: change the wallpaper every 5 seconds up to once a day, optionally shuffled."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• "/><Run Text="Quick Play" Foreground="{StaticResource AccentBrush}" FontWeight="Bold"/><Run Text=" — fast stop-motion flip through the snapshots (Low / Medium / High pace), so a folder of frames plays back like a moving wallpaper."/></TextBlock>
+
+                <!-- ============ SHORTCUTS ============ -->
+                <TextBlock Style="{StaticResource H2}" Text="Keyboard shortcuts"/>
+
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource KeyBrush}" FontWeight="Bold" Margin="0,4,0,4"
+                           Text="The hotkey group — works anywhere, even when Wall-E is minimized or you're in a game/movie:"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="&#8594;  /  &#8592;"/></Border>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Next / previous image (wallpaper) in the current folder"/>
+
+                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="&#8593;  /  &#8595;"/></Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Next / previous folder"/>
+
+                    <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="S"/></Border>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Start / stop the Slideshow (timed autoplay)"/>
+
+                    <Border Grid.Row="3" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="P"/></Border>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Start / stop Quick Play (stop-motion flip)"/>
+                </Grid>
+
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource KeyBrush}" FontWeight="Bold" Margin="0,12,0,4"
+                           Text="Always available — no matter what:"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="Ctrl+Alt+W"/></Border>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Turn the ENTIRE hotkey group above (arrows + S + P) ON / OFF from anywhere — the master switch (see the note below)"/>
+
+                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="Esc"/></Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Exit the full-screen preview (S / P / arrows also work while full screen is open)"/>
+                </Grid>
+
+                <Border Background="#1A140A" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,14,0,0">
+                    <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource TextBrush}">
+                        <Run Text="Heads up:" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
+                        <Run Text=" the group keys are registered system-wide, so while hotkeys are ON, the bare arrows, S and P won't reach other apps (typing, browsing, gaming). When you're done changing wallpapers, press "/>
+                        <Run Text="Ctrl+Alt+W" FontFamily="Consolas" FontWeight="Bold" Foreground="{StaticResource KeyBrush}"/>
+                        <Run Text=" from anywhere to release them all — and press it again later to take control back, without ever reopening the app."/>
+                    </TextBlock>
+                </Border>
+
+                <!-- ============ WHY BETTER ============ -->
+                <TextBlock Style="{StaticResource H2}" Text="Why it beats the built-in Windows slideshow"/>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Step through on demand." FontWeight="Bold"/><Run Text=" Windows' slideshow only auto-advances on a timer — there's no way to go to the next/previous wallpaper yourself. Wall-E gives you real arrow-key control (Windows won't let you bind arrows to the wallpaper at all)."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Global remote control." FontWeight="Bold"/><Run Text=" Change wallpaper without alt-tabbing — even mid-game or mid-movie."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Browse by folder." FontWeight="Bold"/><Run Text=" Jump between movies/themes with Up/Down instead of one big flat shuffle."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Quick Play stop-motion." FontWeight="Bold"/><Run Text=" Flip through a folder of frames fast enough to feel like a moving wallpaper — Windows has nothing like it."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Full-screen preview + fit modes." FontWeight="Bold"/><Run Text=" Inspect a shot big before committing it."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="Remembers your place." FontWeight="Bold"/><Run Text=" Reopens on the exact folder and image you left on."/></TextBlock>
+                <TextBlock Style="{StaticResource Body}"><Run Text="• " Foreground="{StaticResource KeyBrush}"/><Run Text="WebP support." FontWeight="Bold"/><Run Text=" Handles formats Windows won't set directly."/></TextBlock>
+
+                <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource MutedTextBrush}" Margin="0,16,0,4"
+                           Text="Tip: keep Wall-E running in the background and drive everything with the global shortcuts above."/>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="1" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="0,1,0,0" Padding="16,10">
+            <Button x:Name="BtnCloseHowTo" Content="Got it" HorizontalAlignment="Right" Padding="18,7" Cursor="Hand"
+                    Background="#D8A94A" Foreground="#1A1400" BorderThickness="0" FontWeight="Bold"/>
+        </Border>
+    </Grid>
+</Window>

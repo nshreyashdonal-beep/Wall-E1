@@ -1,0 +1,6 @@
+# Runtime cache — auto-created by the app at run time, not source
+modules/Cache/*
+!modules/Cache/.gitkeep
+
+# Installer output
+Output/

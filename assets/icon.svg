@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#14181A"/>
+      <stop offset="100%" stop-color="#05070A"/>
+    </radialGradient>
+
+    <radialGradient id="lensGrad" cx="42%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#DFFFE8"/>
+      <stop offset="28%" stop-color="#5CFF9E"/>
+      <stop offset="62%" stop-color="#12C468"/>
+      <stop offset="100%" stop-color="#054A28"/>
+    </radialGradient>
+
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#3CFF8E" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#3CFF8E" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="metal" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3A4044"/>
+      <stop offset="50%" stop-color="#20262A"/>
+      <stop offset="100%" stop-color="#14181B"/>
+    </linearGradient>
+
+    <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <clipPath id="roundedSquare">
+      <rect x="0" y="0" width="512" height="512" rx="108" ry="108"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <g clip-path="url(#roundedSquare)">
+    <rect width="512" height="512" fill="url(#bgGrad)"/>
+
+    <!-- faint matrix code rain columns -->
+    <g fill="#1FDD73" opacity="0.16" font-family="Consolas, 'Courier New', monospace" font-size="20">
+      <text x="18"  y="60">1 0 1 0 1</text>
+      <text x="18"  y="452">0 1 0 1 1</text>
+      <text x="392" y="70">0 1 1 0 1</text>
+      <text x="392" y="446">1 1 0 1 0</text>
+      <text x="20"  y="240">0 1 0 1 0</text>
+      <text x="392" y="256">1 0 1 1 0</text>
+    </g>
+
+    <!-- subtle scanlines -->
+    <g stroke="#3CFF8E" stroke-width="1" opacity="0.05">
+      <line x1="0" y1="120" x2="512" y2="120"/>
+      <line x1="0" y1="200" x2="512" y2="200"/>
+      <line x1="0" y1="280" x2="512" y2="280"/>
+      <line x1="0" y1="360" x2="512" y2="360"/>
+    </g>
+
+    <!-- Robot head / binocular housing -->
+    <rect x="66" y="150" width="380" height="176" rx="88" fill="url(#metal)" stroke="#484F54" stroke-width="4"/>
+    <rect x="66" y="150" width="380" height="176" rx="88" fill="none" stroke="#0A0C0D" stroke-width="2" opacity="0.6"/>
+
+    <!-- bolts -->
+    <circle cx="96" cy="180" r="7" fill="#4B5257"/>
+    <circle cx="416" cy="180" r="7" fill="#4B5257"/>
+    <circle cx="96" cy="296" r="7" fill="#4B5257"/>
+    <circle cx="416" cy="296" r="7" fill="#4B5257"/>
+
+    <!-- connecting bridge -->
+    <rect x="234" y="222" width="44" height="24" rx="10" fill="#2A3033" stroke="#484F54" stroke-width="3"/>
+
+    <!-- Left eye -->
+    <circle cx="178" cy="238" r="82" fill="url(#glow)" filter="url(#softGlow)"/>
+    <circle cx="178" cy="238" r="66" fill="#0A0F10" stroke="#3A4044" stroke-width="6"/>
+    <circle cx="178" cy="238" r="54" fill="url(#lensGrad)"/>
+    <circle cx="160" cy="216" r="14" fill="#EAFFF1" opacity="0.85"/>
+
+    <!-- Right eye -->
+    <circle cx="334" cy="238" r="82" fill="url(#glow)" filter="url(#softGlow)"/>
+    <circle cx="334" cy="238" r="66" fill="#0A0F10" stroke="#3A4044" stroke-width="6"/>
+    <circle cx="334" cy="238" r="54" fill="url(#lensGrad)"/>
+    <circle cx="316" cy="216" r="14" fill="#EAFFF1" opacity="0.85"/>
+
+    <!-- bottom accent bar (wallpaper/frame nod) -->
+    <rect x="150" y="372" width="212" height="10" rx="5" fill="#1FDD73" opacity="0.85"/>
+    <rect x="182" y="392" width="148" height="6" rx="3" fill="#1FDD73" opacity="0.45"/>
+  </g>
+</svg>
