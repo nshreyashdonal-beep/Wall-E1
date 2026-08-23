@@ -46,6 +46,7 @@ if (-not ([System.Management.Automation.PSTypeName]'Win32.VideoWallpaperNative')
 $script:VideoWallpaperWindow   = $null
 $script:VideoWallpaperPlayer   = $null
 $script:VideoWallpaperOnEnded  = $null
+$script:VideoWallpaperCurrentPath = $null
 $script:VideoWorkerW           = [IntPtr]::Zero
 
 function Get-VideoWorkerWHandle {
@@ -141,27 +142,52 @@ function Show-VideoWallpaper {
         whatever static wallpaper is currently showing (which stays set
         underneath and reappears the moment Hide-VideoWallpaper is called).
 
+    .PARAMETER Stretch
+        How the video fills the screen - one of Uniform (letterboxed, like
+        wallpaper "Fit"), UniformToFill (cropped to fill, like "Fill"),
+        Fill (stretched/distorted, like "Stretch"), or None (native size,
+        centered, like "Center"). Defaults to UniformToFill.
+
     .PARAMETER OnEnded
         Scriptblock invoked every time the video finishes playing (after
         it's already been looped back to frame 0) - e.g. "jump to the next
         image/video in the library". Runs on the UI dispatcher thread.
+
+    .NOTES
+        Calling this again with the SAME path that's already playing (e.g.
+        because the user just changed the wallpaper-style dropdown) does
+        NOT reset playback - only Stretch/Muted are updated live, so the
+        video keeps playing from wherever it currently is instead of
+        jumping back to frame 0.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
         [bool]$Muted = $true,
+        [System.Windows.Media.Stretch]$Stretch = [System.Windows.Media.Stretch]::UniformToFill,
         [scriptblock]$OnEnded = $null
     )
 
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     Initialize-VideoWallpaperWindow | Out-Null
 
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
     $script:VideoWallpaperOnEnded = $OnEnded
-    $script:VideoWallpaperPlayer.Stop()
-    $script:VideoWallpaperPlayer.Source = New-Object System.Uri((Resolve-Path -LiteralPath $Path).Path)
+    $script:VideoWallpaperPlayer.Stretch = $Stretch
     $script:VideoWallpaperPlayer.IsMuted = $Muted
-    $script:VideoWallpaperWindow.Show()
-    $script:VideoWallpaperPlayer.Play()
+
+    $alreadyPlayingThis = $script:VideoWallpaperCurrentPath -and
+        ($script:VideoWallpaperCurrentPath -eq $resolvedPath) -and
+        (Test-VideoWallpaperActive)
+
+    if (-not $alreadyPlayingThis) {
+        $script:VideoWallpaperPlayer.Stop()
+        $script:VideoWallpaperPlayer.Source = New-Object System.Uri($resolvedPath)
+        $script:VideoWallpaperCurrentPath = $resolvedPath
+        $script:VideoWallpaperWindow.Show()
+        $script:VideoWallpaperPlayer.Play()
+    }
+
     return $true
 }
 
@@ -174,6 +200,7 @@ function Hide-VideoWallpaper {
     #>
     if (-not $script:VideoWallpaperWindow) { return }
     $script:VideoWallpaperOnEnded = $null
+    $script:VideoWallpaperCurrentPath = $null
     $script:VideoWallpaperPlayer.Stop()
     $script:VideoWallpaperPlayer.Source = $null
     $script:VideoWallpaperWindow.Hide()
@@ -197,6 +224,7 @@ function Uninitialize-VideoWallpaperInfrastructure {
     #>
     if ($script:VideoWallpaperPlayer) { try { $script:VideoWallpaperPlayer.Stop() } catch { } }
     if ($script:VideoWallpaperWindow) { try { $script:VideoWallpaperWindow.Close() } catch { } }
+    $script:VideoWallpaperCurrentPath = $null
     $script:VideoWallpaperWindow = $null
     $script:VideoWallpaperPlayer = $null
 }

@@ -427,10 +427,20 @@ function Apply-CurrentWallpaper {
 
     if ($imgFile.IsVideo) {
         $muted = -not [bool]$ChkVideoAudio.IsChecked
+        $style = if ($CmbStyle.SelectedItem) { $CmbStyle.SelectedItem.Content } else { 'Fill' }
+        # Map the same wallpaper-style dropdown used for images onto the
+        # closest MediaElement Stretch mode, so "Fit"/"Fill"/etc. actually
+        # do something for videos too instead of always cropping to fill.
+        $videoStretch = switch ($style) {
+            'Fit'     { [System.Windows.Media.Stretch]::Uniform }
+            'Stretch' { [System.Windows.Media.Stretch]::Fill }
+            'Center'  { [System.Windows.Media.Stretch]::None }
+            default   { [System.Windows.Media.Stretch]::UniformToFill }   # Fill, Span
+        }
         # OnEnded fires every time the video loops back to frame 0 - jump
         # to the next item instead of just looping, same "what's next"
         # logic the Slideshow timer uses (respects the Shuffle checkbox).
-        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -OnEnded {
+        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -Stretch $videoStretch -OnEnded {
             Invoke-OnUiThread {
                 if ($ChkShuffle.IsChecked) { Go-RandomImage } else { Go-NextImage }
             }
@@ -440,6 +450,8 @@ function Apply-CurrentWallpaper {
         } else {
             Set-Status "Could not play video wallpaper for $($imgFile.Name)" -IsError
         }
+        $script:Config.WallpaperStyle = $style
+        Save-PlayerConfig -Config $script:Config | Out-Null
         return
     }
 
