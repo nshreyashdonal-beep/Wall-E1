@@ -156,10 +156,10 @@ function Initialize-FullScreenWindow {
             'Escape' { Hide-FullScreenPreview; $e.Handled = $true }
             'S'      { if ($script:IsPlaying)     { Stop-Play }     else { Start-Play };     $e.Handled = $true }
             'P'      { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay }; $e.Handled = $true }
-            'Right'  { Stop-Play; Stop-QuickPlay; Go-NextImage;  $e.Handled = $true }
-            'Left'   { Stop-Play; Stop-QuickPlay; Go-PrevImage;  $e.Handled = $true }
-            'Up'     { Stop-Play; Stop-QuickPlay; Go-NextFolder; $e.Handled = $true }
-            'Down'   { Stop-Play; Stop-QuickPlay; Go-PrevFolder; $e.Handled = $true }
+            'Right'  { Invoke-ManualNav { Go-NextImage };  $e.Handled = $true }
+            'Left'   { Invoke-ManualNav { Go-PrevImage };  $e.Handled = $true }
+            'Up'     { Invoke-ManualNav { Go-NextFolder }; $e.Handled = $true }
+            'Down'   { Invoke-ManualNav { Go-PrevFolder }; $e.Handled = $true }
         }
     })
 }
@@ -450,16 +450,39 @@ function Apply-CurrentWallpaper {
         # aspect-ratio combo instead (like VLC's Aspect Ratio menu).
         $aspectLabel = if ($CmbVideoAspect.SelectedItem) { $CmbVideoAspect.SelectedItem.Content } else { 'Default' }
         $aspectRatio = Get-SelectedVideoAspectRatio
-        # OnEnded fires every time the video loops back to frame 0 - jump
-        # to the next item instead of just looping, same "what's next"
-        # logic the Slideshow timer uses (respects the Shuffle checkbox).
+        # OnEnded fires every time the video reaches its end. If Slideshow
+        # is running, jump to the next item - same "what's next" logic the
+        # Slideshow timer uses (respects the Shuffle checkbox). If
+        # Slideshow is OFF, this video is effectively the "permanent"
+        # wallpaper (the same way a static image just stays put when
+        # Slideshow is off) - so just loop it instead of advancing.
         $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -AspectRatio $aspectRatio -OnEnded {
             Invoke-OnUiThread {
-                if ($ChkShuffle.IsChecked) { Go-RandomImage } else { Go-NextImage }
+                if (-not $script:IsPlaying) {
+                    Restart-VideoWallpaper
+                    return
+                }
+                # -Immediate: skip the ~180ms debounce so the next item
+                # appears right away - paired with VideoWallpaper.ps1's
+                # MediaEnded handler now Stop()ping instead of replaying
+                # from frame 0, this closes the gap where a sliver of the
+                # just-finished video used to play again before the next
+                # image/video showed up.
+                if ($ChkShuffle.IsChecked) { Go-RandomImage -Immediate } else { Go-NextImage -Immediate }
+                # The Slideshow timer keeps ticking on its original
+                # schedule the whole time the video was playing (its tick
+                # handler just no-ops while a video is current - see
+                # $script:PlayTimer.Add_Tick above). Restart it here so the
+                # item we just landed on gets a full, fresh interval of its
+                # own instead of possibly being cut short by a tick that
+                # was already due to fire moments after the video ended.
+                $script:PlayTimer.Stop()
+                $script:PlayTimer.Start()
             }
         }
         if ($ok) {
-            Set-Status "Playing video wallpaper: $($imgFile.Name) - it'll auto-advance when it finishes."
+            $whenDone = if ($script:IsPlaying) { "it'll auto-advance when it finishes" } else { "it'll loop when it finishes" }
+            Set-Status "Playing video wallpaper: $($imgFile.Name) - $whenDone."
         } else {
             Set-Status "Could not play video wallpaper for $($imgFile.Name)" -IsError
         }
@@ -511,17 +534,26 @@ function Show-CurrentImage {
 # Navigation
 # ---------------------------------------------------------------------------
 function Go-NextImage {
+    param(
+        # Skips the ~180ms debounce and applies the wallpaper right away.
+        # Used when advancing off the back of a video that just finished
+        # playing (see the OnEnded callback in Apply-CurrentWallpaper) -
+        # there's no rapid-fire keypress concern there, and waiting out
+        # the debounce let the just-finished video's frozen last frame
+        # sit on screen for a beat before the next item appeared.
+        [switch]$Immediate
+    )
     if ($script:CurImages.Count -eq 0) { return }
 
     if ($script:Config.ImageIndex -ge $script:CurImages.Count - 1) {
         # Last image in this folder - roll into the next folder's first image.
-        Go-NextFolder
+        Go-NextFolder -Immediate:$Immediate
         return
     }
 
     $script:Config.ImageIndex++
     Update-PreviewDisplay
-    Request-WallpaperApply
+    if ($Immediate) { Apply-CurrentWallpaper } else { Request-WallpaperApply }
 }
 
 function Go-PrevImage {
@@ -539,12 +571,13 @@ function Go-PrevImage {
 }
 
 function Go-NextFolder {
+    param([switch]$Immediate)
     if ($script:Folders.Count -eq 0) { return }
     $script:Config.FolderIndex = ($script:Config.FolderIndex + 1) % $script:Folders.Count
     $script:Config.ImageIndex = 0
     Load-CurrentFolderImages
     Update-PreviewDisplay
-    Request-WallpaperApply
+    if ($Immediate) { Apply-CurrentWallpaper } else { Request-WallpaperApply }
 }
 
 function Go-PrevFolder {
@@ -571,6 +604,10 @@ function Go-RandomImage {
         Jumps to a random image, possibly in a different folder - used when
         "Shuffle the picture order" is enabled during slideshow playback.
     #>
+    param(
+        # See Go-NextImage's -Immediate for why the video-ended path needs this.
+        [switch]$Immediate
+    )
     if ($script:Folders.Count -eq 0) { return }
 
     $prevFolderIndex = $script:Config.FolderIndex
@@ -592,7 +629,7 @@ function Go-RandomImage {
 
     $script:Config.ImageIndex = $newImageIndex
     Update-PreviewDisplay
-    Request-WallpaperApply
+    if ($Immediate) { Apply-CurrentWallpaper } else { Request-WallpaperApply }
 }
 
 # All UI-affecting calls from the global hotkey hook must run on the UI
@@ -607,6 +644,12 @@ function Invoke-OnUiThread {
 # Slideshow autoplay
 # ---------------------------------------------------------------------------
 $script:PlayTimer.Add_Tick({
+    # Videos advance themselves once they finish playing (see the OnEnded
+    # handler in Apply-CurrentWallpaper), so while a video is the current
+    # item the Slideshow timer must NOT also try to advance - otherwise a
+    # multi-minute video gets cut off as soon as a single Slideshow
+    # interval elapses, instead of playing to its full length.
+    if ($script:CurrentIsVideo) { return }
     if ($ChkShuffle.IsChecked) { Go-RandomImage } else { Go-NextImage }
 })
 
@@ -639,6 +682,34 @@ function Update-PlayIntervalIfRunning {
     if (-not $script:IsPlaying) { return }
     $seconds = if ($CmbInterval.SelectedItem) { [int]$CmbInterval.SelectedItem.Tag } else { 30 }
     $script:PlayTimer.Interval = [TimeSpan]::FromSeconds($seconds)
+}
+
+function Invoke-ManualNav {
+    <#
+    .SYNOPSIS
+        Wraps a manual "jump to a specific image/video" action - arrow key,
+        nav button, global hotkey, or full-screen-view arrow key - so it
+        composes correctly with Slideshow.
+
+        Previously every manual-nav call site did "Stop-Play; ...; Go-X",
+        so tapping an arrow key while Slideshow was running killed the
+        slideshow entirely instead of just skipping ahead. The user
+        pressing an arrow is overriding what's showing RIGHT NOW, not
+        asking to exit auto-advance - so Slideshow now keeps running: it
+        just gets a fresh full interval starting from the item the user
+        jumped to, instead of a stale tick (timed from the previous item)
+        firing moments later.
+
+        Quick Play (a separate, faster autoplay mode) is still stopped by
+        a manual jump - the two don't make sense to run at the same time.
+    #>
+    param([Parameter(Mandatory)][scriptblock]$NavAction)
+    Stop-QuickPlay
+    & $NavAction
+    if ($script:IsPlaying) {
+        $script:PlayTimer.Stop()
+        $script:PlayTimer.Start()
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -679,10 +750,10 @@ function Update-QuickPlaySpeedIfRunning {
 # ---------------------------------------------------------------------------
 function Enable-Hotkeys {
     $ok = Register-GlobalArrowHotkeys `
-            -OnRight     { Invoke-OnUiThread { Stop-Play; Stop-QuickPlay; Go-NextImage } } `
-            -OnLeft      { Invoke-OnUiThread { Stop-Play; Stop-QuickPlay; Go-PrevImage } } `
-            -OnUp        { Invoke-OnUiThread { Stop-Play; Stop-QuickPlay; Go-NextFolder } } `
-            -OnDown      { Invoke-OnUiThread { Stop-Play; Stop-QuickPlay; Go-PrevFolder } } `
+            -OnRight     { Invoke-OnUiThread { Invoke-ManualNav { Go-NextImage } } } `
+            -OnLeft      { Invoke-OnUiThread { Invoke-ManualNav { Go-PrevImage } } } `
+            -OnUp        { Invoke-OnUiThread { Invoke-ManualNav { Go-NextFolder } } } `
+            -OnDown      { Invoke-OnUiThread { Invoke-ManualNav { Go-PrevFolder } } } `
             -OnSlideshow { Invoke-OnUiThread { if ($script:IsPlaying)      { Stop-Play }      else { Start-Play } } } `
             -OnQuickPlay { Invoke-OnUiThread { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay } } }
 
@@ -707,10 +778,10 @@ function Disable-Hotkeys {
 # ---------------------------------------------------------------------------
 # Event wiring
 # ---------------------------------------------------------------------------
-$BtnRight.Add_Click({ Stop-Play; Stop-QuickPlay; Go-NextImage })
-$BtnLeft.Add_Click({ Stop-Play; Stop-QuickPlay; Go-PrevImage })
-$BtnUp.Add_Click({ Stop-Play; Stop-QuickPlay; Go-NextFolder })
-$BtnDown.Add_Click({ Stop-Play; Stop-QuickPlay; Go-PrevFolder })
+$BtnRight.Add_Click({ Invoke-ManualNav { Go-NextImage } })
+$BtnLeft.Add_Click({ Invoke-ManualNav { Go-PrevImage } })
+$BtnUp.Add_Click({ Invoke-ManualNav { Go-NextFolder } })
+$BtnDown.Add_Click({ Invoke-ManualNav { Go-PrevFolder } })
 
 $BtnPlay.Add_Click({
     if ($script:IsPlaying) { Stop-Play } else { Start-Play }
@@ -772,19 +843,19 @@ $window.Add_PreviewKeyDown({
             $e.Handled = $true
         }
         'Right' {
-            Stop-Play; Stop-QuickPlay; Go-NextImage
+            Invoke-ManualNav { Go-NextImage }
             $e.Handled = $true
         }
         'Left' {
-            Stop-Play; Stop-QuickPlay; Go-PrevImage
+            Invoke-ManualNav { Go-PrevImage }
             $e.Handled = $true
         }
         'Up' {
-            Stop-Play; Stop-QuickPlay; Go-NextFolder
+            Invoke-ManualNav { Go-NextFolder }
             $e.Handled = $true
         }
         'Down' {
-            Stop-Play; Stop-QuickPlay; Go-PrevFolder
+            Invoke-ManualNav { Go-PrevFolder }
             $e.Handled = $true
         }
     }
