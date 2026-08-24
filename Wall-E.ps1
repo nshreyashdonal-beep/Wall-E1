@@ -733,8 +733,35 @@ foreach ($rb in @($RbSpeedLow, $RbSpeedMedium, $RbSpeedHigh)) {
 # hotkeys like the arrows - S and P are ordinary letters typed constantly
 # in every other app, so hijacking them system-wide would break normal
 # typing anywhere while this app is running.
-$window.Add_KeyDown({
+#
+# Right/Left/Up/Down are ALSO handled here as a local fallback, same as the
+# full-screen preview window already does. When the "Global Hotkey" checkbox
+# is ON, the OS-level RegisterHotKey hook in GlobalHotkey.ps1 intercepts bare
+# arrow keys before WPF ever sees them, so this branch simply won't fire (no
+# double navigation). When the checkbox is OFF, nothing is registered at the
+# OS level, so without this fallback the arrows would do nothing at all, even
+# while the app window is focused.
+#
+# IMPORTANT: this is wired to PreviewKeyDown (tunneling), not KeyDown
+# (bubbling). WPF's ComboBox/Button/CheckBox controls consume arrow keys
+# themselves (dropdown navigation, focus movement) and mark the event
+# Handled before it ever bubbles up to the window - so if any of those
+# controls happens to have keyboard focus, a window-level KeyDown handler
+# never sees the arrow press at all. PreviewKeyDown runs top-down, before
+# any child control gets a chance to swallow it, so arrows work regardless
+# of which control currently has focus.
+$window.Add_PreviewKeyDown({
     param($sender, $e)
+
+    # Exception: if a ComboBox's dropdown is actually open, let Up/Down
+    # behave normally (move the highlighted item) instead of hijacking it
+    # for image navigation - otherwise the dropdown becomes unusable.
+    if (($e.Key -eq 'Up' -or $e.Key -eq 'Down') -and
+        $e.OriginalSource -is [System.Windows.Controls.ComboBox] -and
+        $e.OriginalSource.IsDropDownOpen) {
+        return
+    }
+
     switch ($e.Key) {
         'S' {
             if ($script:IsPlaying) { Stop-Play } else { Start-Play }
@@ -742,6 +769,22 @@ $window.Add_KeyDown({
         }
         'P' {
             if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay }
+            $e.Handled = $true
+        }
+        'Right' {
+            Stop-Play; Stop-QuickPlay; Go-NextImage
+            $e.Handled = $true
+        }
+        'Left' {
+            Stop-Play; Stop-QuickPlay; Go-PrevImage
+            $e.Handled = $true
+        }
+        'Up' {
+            Stop-Play; Stop-QuickPlay; Go-NextFolder
+            $e.Handled = $true
+        }
+        'Down' {
+            Stop-Play; Stop-QuickPlay; Go-PrevFolder
             $e.Handled = $true
         }
     }
@@ -840,20 +883,39 @@ $window.Add_Loaded({
     $TxtRootPath.Text = if ($script:Config.RootPath) { $script:Config.RootPath } else { '(not set)' }
     Sync-StyleComboToConfig
     Sync-VideoAspectComboToConfig
+
+    # Slideshow interval always starts at 30s on launch, regardless of
+    # whatever was saved last session (same policy as Hotkeys/Video Audio
+    # below) - force it back to the default before syncing the combo box
+    # so the UI and the timer agree.
+    $script:Config.SlideshowIntervalSeconds = 30
     Sync-IntervalComboToConfig
+
     Sync-QuickPlaySpeedToConfig
     Sync-PreviewStretchToConfig
     Apply-PreviewStretch
     $ChkShuffle.IsChecked = [bool]$script:Config.ShuffleEnabled
-    $ChkVideoAudio.IsChecked = [bool]$script:Config.VideoAudioEnabled
+
+    # Global Hotkey and Video Audio always start OFF/unchecked on launch,
+    # regardless of what was saved last session - these are deliberately
+    # NOT restored from config (unlike Shuffle/Style/etc.), so the
+    # user has to opt back in each run instead of it silently re-enabling.
+    $ChkHotkeys.IsChecked = $false
+    $ChkVideoAudio.IsChecked = $false
+    $script:Config.HotkeysEnabled = $false
+    $script:Config.VideoAudioEnabled = $false
+    Set-VideoWallpaperMuted -Muted $true
+    Save-PlayerConfig -Config $script:Config | Out-Null
+
     Reload-Library
     Show-CurrentImage
 
     # Stand up the shared hotkey hook + the always-on Ctrl+Alt+W master
-    # toggle FIRST, before enabling the arrow hotkeys. The toggle flips the
-    # checkbox, which reuses the existing Enable/Disable-Hotkeys event path -
-    # so the arrow hotkeys can be switched on/off from anywhere, even while
-    # the app sits unfocused in the background.
+    # toggle. The toggle flips the checkbox, which reuses the existing
+    # Enable/Disable-Hotkeys event path - so the arrow hotkeys can be
+    # switched on/off from anywhere, even while the app sits unfocused in
+    # the background. (Arrow hotkeys themselves stay OFF at launch per the
+    # policy above - only the Ctrl+Alt+W hook itself is always registered.)
     $infraOk = Initialize-HotkeyInfrastructure -Window $window -OnToggle {
         Invoke-OnUiThread { $ChkHotkeys.IsChecked = -not $ChkHotkeys.IsChecked }
     }
@@ -861,11 +923,9 @@ $window.Add_Loaded({
         Set-Status "Ctrl+Alt+W master toggle unavailable (another app may own it). The checkbox still works." -IsError
     }
 
-    if ($script:Config.HotkeysEnabled) {
-        $ChkHotkeys.IsChecked = $true   # triggers Enable-Hotkeys via event
-    } else {
-        $ChkHotkeys.IsChecked = $false
-    }
+    # Auto-start the slideshow at the configured/default interval (30s) as
+    # soon as the app opens, instead of requiring a manual click/press of S.
+    Start-Play
 })
 
 # ---------------------------------------------------------------------------
