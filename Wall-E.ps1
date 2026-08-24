@@ -216,6 +216,7 @@ $BtnRight     = Get-El 'BtnRight'
 $TxtRootPath  = Get-El 'TxtRootPath'
 $BtnBrowse    = Get-El 'BtnBrowse'
 $CmbStyle     = Get-El 'CmbStyle'
+$CmbVideoAspect = Get-El 'CmbVideoAspect'
 $ChkHotkeys   = Get-El 'ChkHotkeys'
 $BtnRefresh   = Get-El 'BtnRefresh'
 $BtnPlay      = Get-El 'BtnPlay'
@@ -283,6 +284,23 @@ function Sync-StyleComboToConfig {
         }
     }
     $CmbStyle.SelectedIndex = 0
+}
+
+function Sync-VideoAspectComboToConfig {
+    foreach ($item in $CmbVideoAspect.Items) {
+        if ($item.Content -eq $script:Config.VideoAspectRatio) {
+            $CmbVideoAspect.SelectedItem = $item
+            return
+        }
+    }
+    $CmbVideoAspect.SelectedIndex = 0
+}
+
+# Reads the current CmbVideoAspect selection and returns the numeric
+# width/height ratio to force ("Default" -> 0, meaning "no forced shape").
+function Get-SelectedVideoAspectRatio {
+    if (-not $CmbVideoAspect.SelectedItem) { return 0 }
+    return [double]$CmbVideoAspect.SelectedItem.Tag
 }
 
 function Sync-IntervalComboToConfig {
@@ -427,20 +445,15 @@ function Apply-CurrentWallpaper {
 
     if ($imgFile.IsVideo) {
         $muted = -not [bool]$ChkVideoAudio.IsChecked
-        $style = if ($CmbStyle.SelectedItem) { $CmbStyle.SelectedItem.Content } else { 'Fill' }
-        # Map the same wallpaper-style dropdown used for images onto the
-        # closest MediaElement Stretch mode, so "Fit"/"Fill"/etc. actually
-        # do something for videos too instead of always cropping to fill.
-        $videoStretch = switch ($style) {
-            'Fit'     { [System.Windows.Media.Stretch]::Uniform }
-            'Stretch' { [System.Windows.Media.Stretch]::Fill }
-            'Center'  { [System.Windows.Media.Stretch]::None }
-            default   { [System.Windows.Media.Stretch]::UniformToFill }   # Fill, Span
-        }
+        # Videos are no longer controlled by the image "Wallpaper Style"
+        # (Fit/Fill/Stretch/etc.) combo - they get their own forced
+        # aspect-ratio combo instead (like VLC's Aspect Ratio menu).
+        $aspectLabel = if ($CmbVideoAspect.SelectedItem) { $CmbVideoAspect.SelectedItem.Content } else { 'Default' }
+        $aspectRatio = Get-SelectedVideoAspectRatio
         # OnEnded fires every time the video loops back to frame 0 - jump
         # to the next item instead of just looping, same "what's next"
         # logic the Slideshow timer uses (respects the Shuffle checkbox).
-        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -Stretch $videoStretch -OnEnded {
+        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -AspectRatio $aspectRatio -OnEnded {
             Invoke-OnUiThread {
                 if ($ChkShuffle.IsChecked) { Go-RandomImage } else { Go-NextImage }
             }
@@ -450,7 +463,7 @@ function Apply-CurrentWallpaper {
         } else {
             Set-Status "Could not play video wallpaper for $($imgFile.Name)" -IsError
         }
-        $script:Config.WallpaperStyle = $style
+        $script:Config.VideoAspectRatio = $aspectLabel
         Save-PlayerConfig -Config $script:Config | Out-Null
         return
     }
@@ -766,6 +779,15 @@ $CmbStyle.Add_SelectionChanged({
     }
 })
 
+$CmbVideoAspect.Add_SelectionChanged({
+    # Only matters while a video is actually the current item - re-applying
+    # (same path) updates the forced aspect ratio live without restarting
+    # playback. See the -NOTES on Show-VideoWallpaper.
+    if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
+        Apply-CurrentWallpaper
+    }
+})
+
 $CmbPreviewStretch.Add_SelectionChanged({ Apply-PreviewStretch })
 
 $BtnFullScreen.Add_Click({ Show-FullScreenPreview })
@@ -817,6 +839,7 @@ $window.Add_Closing({
 $window.Add_Loaded({
     $TxtRootPath.Text = if ($script:Config.RootPath) { $script:Config.RootPath } else { '(not set)' }
     Sync-StyleComboToConfig
+    Sync-VideoAspectComboToConfig
     Sync-IntervalComboToConfig
     Sync-QuickPlaySpeedToConfig
     Sync-PreviewStretchToConfig

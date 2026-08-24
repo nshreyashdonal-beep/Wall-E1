@@ -196,8 +196,8 @@
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0">
-                    <TextBlock Text="WALLPAPER STYLE" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
-                    <ComboBox x:Name="CmbStyle" Margin="0,4,6,0">
+                    <TextBlock Text="WALLPAPER STYLE (IMAGES)" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
+                    <ComboBox x:Name="CmbStyle" Margin="0,4,6,0" ToolTip="Applies to still-image wallpapers only. Videos use the Aspect Ratio combo below.">
                         <ComboBoxItem Content="Fill"/>
                         <ComboBoxItem Content="Fit"/>
                         <ComboBoxItem Content="Stretch"/>
@@ -223,6 +223,15 @@
                     </Grid.ColumnDefinitions>
                     <CheckBox x:Name="ChkVideoAudio" Content="Play video audio (muted by default)" Foreground="{StaticResource TextBrush}"/>
                 </Grid>
+                <TextBlock Text="ASPECT RATIO" FontSize="11" Foreground="{StaticResource MutedTextBrush}" Margin="0,10,0,0"/>
+                <ComboBox x:Name="CmbVideoAspect" Margin="0,4,6,0" HorizontalAlignment="Left" Width="140"
+                          ToolTip="Forces the video's display aspect ratio, like VLC's Aspect Ratio menu. 'Default' plays at full-screen cover with no forced shape.">
+                    <ComboBoxItem Content="Default" Tag="0" IsSelected="True"/>
+                    <ComboBoxItem Content="4:3" Tag="1.3333333333333333"/>
+                    <ComboBoxItem Content="16:9" Tag="1.7777777777777777"/>
+                    <ComboBoxItem Content="16:10" Tag="1.6"/>
+                    <ComboBoxItem Content="21:9 (2.21:1)" Tag="2.21"/>
+                </ComboBox>
                 <TextBlock Text="Drop video files into a snapshot folder alongside images - Wall-E plays them embedded behind your desktop icons, then automatically moves on to the next item when they finish." FontSize="10" Foreground="{StaticResource MutedTextBrush}" Margin="0,6,0,0" TextWrapping="Wrap"/>
             </StackPanel>
 

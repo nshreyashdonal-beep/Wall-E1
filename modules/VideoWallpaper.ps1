@@ -45,8 +45,14 @@ if (-not ([System.Management.Automation.PSTypeName]'Win32.VideoWallpaperNative')
 
 $script:VideoWallpaperWindow   = $null
 $script:VideoWallpaperPlayer   = $null
+$script:VideoWallpaperGrid     = $null
+$script:VideoWallpaperBarTop    = $null
+$script:VideoWallpaperBarBottom = $null
+$script:VideoWallpaperBarLeft   = $null
+$script:VideoWallpaperBarRight  = $null
 $script:VideoWallpaperOnEnded  = $null
 $script:VideoWallpaperCurrentPath = $null
+$script:VideoWallpaperScreenBounds = $null
 $script:VideoWorkerW           = [IntPtr]::Zero
 
 function Get-VideoWorkerWHandle {
@@ -87,17 +93,39 @@ function Initialize-VideoWallpaperWindow {
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False"
         Topmost="False" Background="Black">
-    <Grid>
+    <Grid x:Name="Root" Background="Black">
         <MediaElement x:Name="Player" LoadedBehavior="Manual" UnloadedBehavior="Manual"
-                      Stretch="UniformToFill"/>
+                      Stretch="UniformToFill"
+                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+        <!-- Opaque black masks drawn ON TOP of the video (later = higher
+             Z in a Grid). Forcing an aspect ratio by resizing/Stretch-ing
+             the MediaElement alone isn't reliable here: MediaElement's
+             video surface (especially with hardware/DXVA decoding) is
+             known to sometimes ignore its own WPF layout bounds when
+             hosted in an unusual reparented window like this WorkerW
+             embed, and just paints across the whole native window
+             regardless of Width/Height/Stretch. These masks guarantee
+             the letterbox/pillarbox bars show correctly no matter what
+             the video surface itself decides to do underneath. Sized to
+             0 (invisible) unless a forced aspect ratio is active. -->
+        <Rectangle x:Name="BarTop"    Fill="Black" Height="0" VerticalAlignment="Top"    HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="BarBottom" Fill="Black" Height="0" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="BarLeft"   Fill="Black" Width="0"  HorizontalAlignment="Left"  VerticalAlignment="Stretch"/>
+        <Rectangle x:Name="BarRight"  Fill="Black" Width="0"  HorizontalAlignment="Right" VerticalAlignment="Stretch"/>
     </Grid>
 </Window>
 "@
     $reader = New-Object System.Xml.XmlNodeReader $xaml
     $script:VideoWallpaperWindow = [System.Windows.Markup.XamlReader]::Load($reader)
     $script:VideoWallpaperPlayer = $script:VideoWallpaperWindow.FindName('Player')
+    $script:VideoWallpaperGrid   = $script:VideoWallpaperWindow.FindName('Root')
+    $script:VideoWallpaperBarTop    = $script:VideoWallpaperWindow.FindName('BarTop')
+    $script:VideoWallpaperBarBottom = $script:VideoWallpaperWindow.FindName('BarBottom')
+    $script:VideoWallpaperBarLeft   = $script:VideoWallpaperWindow.FindName('BarLeft')
+    $script:VideoWallpaperBarRight  = $script:VideoWallpaperWindow.FindName('BarRight')
 
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $script:VideoWallpaperScreenBounds = $screen
     $script:VideoWallpaperWindow.Left   = 0
     $script:VideoWallpaperWindow.Top    = 0
     $script:VideoWallpaperWindow.Width  = $screen.Width
@@ -135,6 +163,76 @@ function Initialize-VideoWallpaperWindow {
     return $true
 }
 
+function Set-VideoWallpaperAspectRatio {
+    <#
+    .SYNOPSIS
+        Forces the MediaElement's displayed shape to a given aspect ratio
+        (width/height), the same way VLC's "Aspect Ratio" menu does - NOT
+        to be confused with Stretch (Fit/Fill/Stretch/Center), which only
+        controls how the source is scaled *within* whatever shape the
+        MediaElement currently has.
+
+        Picks the largest rectangle of that ratio that fits inside the
+        screen, resizes/centers the MediaElement to exactly that rectangle
+        (leaving black bars - letterbox/pillarbox - in the rest of the
+        window), and stretches the source to fill it exactly.
+
+        Pass $null (or 0) for AspectRatio to go back to "Default": the
+        MediaElement fills the whole screen with Stretch=UniformToFill.
+    #>
+    param([double]$AspectRatio = 0)
+
+    if (-not $script:VideoWallpaperPlayer -or -not $script:VideoWallpaperGrid) { return }
+
+    if ($AspectRatio -le 0) {
+        # Default - no forced shape, just cover the whole screen, no bars.
+        $script:VideoWallpaperPlayer.HorizontalAlignment = 'Stretch'
+        $script:VideoWallpaperPlayer.VerticalAlignment    = 'Stretch'
+        $script:VideoWallpaperPlayer.Width  = [double]::NaN
+        $script:VideoWallpaperPlayer.Height = [double]::NaN
+        $script:VideoWallpaperPlayer.Stretch = [System.Windows.Media.Stretch]::UniformToFill
+        Set-VideoWallpaperBars -TopBottom 0 -LeftRight 0
+        return
+    }
+
+    $bounds = $script:VideoWallpaperScreenBounds
+    if (-not $bounds) { $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds }
+    $screenW = [double]$bounds.Width
+    $screenH = [double]$bounds.Height
+
+    # Largest rectangle with the target ratio that still fits inside the
+    # screen bounds (classic letterbox/pillarbox fit math).
+    $targetW = $screenW
+    $targetH = $targetW / $AspectRatio
+    if ($targetH -gt $screenH) {
+        $targetH = $screenH
+        $targetW = $targetH * $AspectRatio
+    }
+
+    $script:VideoWallpaperPlayer.HorizontalAlignment = 'Center'
+    $script:VideoWallpaperPlayer.VerticalAlignment    = 'Center'
+    $script:VideoWallpaperPlayer.Width  = $targetW
+    $script:VideoWallpaperPlayer.Height = $targetH
+    # Fill (not Uniform/UniformToFill) so the source is stretched to
+    # exactly match the forced shape - mirrors VLC's forced-DAR behavior.
+    $script:VideoWallpaperPlayer.Stretch = [System.Windows.Media.Stretch]::Fill
+
+    $barTopBottom = [Math]::Max(0, ($screenH - $targetH) / 2)
+    $barLeftRight = [Math]::Max(0, ($screenW - $targetW) / 2)
+    Set-VideoWallpaperBars -TopBottom $barTopBottom -LeftRight $barLeftRight
+}
+
+# Sizes the four opaque black mask rectangles that sit on top of the video
+# (see the .NOTES on why these exist rather than trusting the MediaElement
+# to clip/letterbox itself).
+function Set-VideoWallpaperBars {
+    param([double]$TopBottom = 0, [double]$LeftRight = 0)
+    if ($script:VideoWallpaperBarTop)    { $script:VideoWallpaperBarTop.Height    = $TopBottom }
+    if ($script:VideoWallpaperBarBottom) { $script:VideoWallpaperBarBottom.Height = $TopBottom }
+    if ($script:VideoWallpaperBarLeft)   { $script:VideoWallpaperBarLeft.Width    = $LeftRight }
+    if ($script:VideoWallpaperBarRight)  { $script:VideoWallpaperBarRight.Width   = $LeftRight }
+}
+
 function Show-VideoWallpaper {
     <#
     .SYNOPSIS
@@ -142,11 +240,11 @@ function Show-VideoWallpaper {
         whatever static wallpaper is currently showing (which stays set
         underneath and reappears the moment Hide-VideoWallpaper is called).
 
-    .PARAMETER Stretch
-        How the video fills the screen - one of Uniform (letterboxed, like
-        wallpaper "Fit"), UniformToFill (cropped to fill, like "Fill"),
-        Fill (stretched/distorted, like "Stretch"), or None (native size,
-        centered, like "Center"). Defaults to UniformToFill.
+    .PARAMETER AspectRatio
+        Forces the video's display aspect ratio (width/height), the same
+        way VLC's Aspect Ratio menu does - e.g. 1.7777778 for 16:9, 1.3333
+        for 4:3. Pass 0 (the default) for "Default": no forced shape, video
+        covers the full screen (cropped as needed).
 
     .PARAMETER OnEnded
         Scriptblock invoked every time the video finishes playing (after
@@ -155,8 +253,8 @@ function Show-VideoWallpaper {
 
     .NOTES
         Calling this again with the SAME path that's already playing (e.g.
-        because the user just changed the wallpaper-style dropdown) does
-        NOT reset playback - only Stretch/Muted are updated live, so the
+        because the user just changed the aspect-ratio dropdown) does NOT
+        reset playback - only aspect ratio/Muted are updated live, so the
         video keeps playing from wherever it currently is instead of
         jumping back to frame 0.
     #>
@@ -164,7 +262,7 @@ function Show-VideoWallpaper {
     param(
         [Parameter(Mandatory)][string]$Path,
         [bool]$Muted = $true,
-        [System.Windows.Media.Stretch]$Stretch = [System.Windows.Media.Stretch]::UniformToFill,
+        [double]$AspectRatio = 0,
         [scriptblock]$OnEnded = $null
     )
 
@@ -173,7 +271,7 @@ function Show-VideoWallpaper {
 
     $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
     $script:VideoWallpaperOnEnded = $OnEnded
-    $script:VideoWallpaperPlayer.Stretch = $Stretch
+    Set-VideoWallpaperAspectRatio -AspectRatio $AspectRatio
     $script:VideoWallpaperPlayer.IsMuted = $Muted
 
     $alreadyPlayingThis = $script:VideoWallpaperCurrentPath -and

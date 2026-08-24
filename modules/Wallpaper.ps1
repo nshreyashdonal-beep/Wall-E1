@@ -28,6 +28,17 @@ $script:WallpaperLogPath    = Join-Path $script:WallpaperCacheDir  'wallpaper.lo
 $script:WallpaperCurrentBmp = Join-Path $script:WallpaperCacheDir  'wallpaper.bmp'
 $script:WallpaperFramePng   = Join-Path $script:WallpaperCacheDir  'frame_capture.png'
 $script:WallpaperBackupPath = Join-Path $script:WallpaperCacheDir  'wallpaper.backup'
+# Windows silently no-ops SystemParametersInfo(SPI_SETDESKWALLPAPER) when
+# given the exact same path it already has set - which meant changing ONLY
+# the style dropdown (Fit/Fill/Stretch/etc.) on the same image did nothing
+# visually, even though the registry style value did change underneath.
+# Fix: always hand Windows a "new" path by staging the image into one of
+# two alternating cache files and toggling between them on every call, so
+# the path is guaranteed to differ from whatever's currently set and the
+# style change always takes effect immediately.
+$script:WallpaperStagingA  = Join-Path $script:WallpaperCacheDir 'staging_a'
+$script:WallpaperStagingB  = Join-Path $script:WallpaperCacheDir 'staging_b'
+$script:WallpaperStagingToggle = $false
 
 # Pull in the low-level Win32/registry helper
 $helperPath = Join-Path $script:WallpaperModuleRoot 'WallpaperHelper.ps1'
@@ -281,8 +292,27 @@ function Set-Wallpaper {
         Backup-Wallpaper | Out-Null
     }
 
+    # Stage into an alternating cache filename so the path Windows sees
+    # always changes - see the staging comment near the top of this file
+    # for why that matters (otherwise a style-only change on the same
+    # image silently does nothing).
+    $script:WallpaperStagingToggle = -not $script:WallpaperStagingToggle
+    $stagingBase = if ($script:WallpaperStagingToggle) { $script:WallpaperStagingA } else { $script:WallpaperStagingB }
+    $stagingPath = "$stagingBase$ext"
+
+    if (-not (Test-Path -LiteralPath $script:WallpaperCacheDir)) {
+        New-Item -ItemType Directory -Path $script:WallpaperCacheDir -Force | Out-Null
+    }
+    try {
+        Copy-Item -LiteralPath $Path -Destination $stagingPath -Force
+    }
+    catch {
+        Write-WallpaperLog "Set-Wallpaper: could not stage '$Path' - falling back to setting it directly ($($_.Exception.Message))" -Level WARN
+        $stagingPath = $Path
+    }
+
     $styleOk = Set-WallpaperRegistryStyle -Style $Style
-    $setOk   = Invoke-SystemParametersInfoWallpaper -Path $Path
+    $setOk   = Invoke-SystemParametersInfoWallpaper -Path $stagingPath
 
     if ($styleOk -and $setOk) {
         $config = Get-WallpaperConfig

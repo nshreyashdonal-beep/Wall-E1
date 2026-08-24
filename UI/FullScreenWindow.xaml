@@ -10,13 +10,21 @@
     <Grid x:Name="RootGrid">
         <Image x:Name="ImgFullScreen" Stretch="Uniform"/>
 
-        <StackPanel x:Name="PnlVideoBadgeFS" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <Border Width="88" Height="88" CornerRadius="44" Background="#1E1E24" BorderBrush="#D8A94A" BorderThickness="2">
-                <TextBlock Text="▶" FontSize="34" Foreground="#D8A94A" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="6,0,0,0"/>
-            </Border>
-            <TextBlock Text="PLAYING AS VIDEO WALLPAPER" FontSize="14" FontWeight="Bold" Foreground="#D8A94A" HorizontalAlignment="Center" Margin="0,16,0,0"/>
-            <TextBlock Text="Minimize or move this window to see it on the desktop" FontSize="11" Foreground="#8C8C94" HorizontalAlignment="Center" Margin="0,4,0,0"/>
-        </StackPanel>
+        <!-- Live, muted, looping preview mirroring the real video
+             wallpaper's Stretch mode - same rationale as MedPreview in
+             the main window. -->
+        <MediaElement x:Name="MedPreviewFS" Stretch="Uniform"
+                      LoadedBehavior="Manual" UnloadedBehavior="Manual"
+                      IsMuted="True" Visibility="Collapsed"/>
+
+        <Border x:Name="PnlVideoBadgeFS" Visibility="Collapsed"
+                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="20"
+                Background="#CC0F0F13" BorderBrush="#D8A94A" BorderThickness="1" CornerRadius="6" Padding="12,7">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="🔇" FontSize="13" Margin="0,0,7,0"/>
+                <TextBlock Text="Preview muted - desktop wallpaper may have audio" FontSize="12" Foreground="#8C8C94"/>
+            </StackPanel>
+        </Border>
 
         <TextBlock Text="Esc or click anywhere to exit full screen"
                     FontSize="12" Foreground="#8C8C94"

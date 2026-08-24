@@ -149,6 +149,11 @@ function Get-PlayerConfig {
     if (-not (Get-Member -InputObject $cfg -Name 'VideoAudioEnabled' -MemberType NoteProperty)) {
         $cfg | Add-Member -MemberType NoteProperty -Name 'VideoAudioEnabled' -Value $false
     }
+    if (-not (Get-Member -InputObject $cfg -Name 'VideoAspectRatio' -MemberType NoteProperty)) {
+        # 'Default' = no forced shape (full-screen cover). Otherwise one of
+        # the CmbVideoAspect Tag values, stored as text, e.g. "1.7777777777777777".
+        $cfg | Add-Member -MemberType NoteProperty -Name 'VideoAspectRatio' -Value 'Default'
+    }
 
     return $cfg
 }
