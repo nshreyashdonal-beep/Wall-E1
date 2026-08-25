@@ -110,7 +110,7 @@
                         VerticalAlignment="Top" Padding="12,6" FontSize="12" ToolTip="Getting started, shortcuts, and why it beats the built-in slideshow"/>
             </Grid>
 
-            <Grid Grid.Row="1">
+            <Grid x:Name="PreviewArea" Grid.Row="1">
                 <Border x:Name="PreviewHost" MinHeight="180" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1" CornerRadius="8">
                     <Grid x:Name="PreviewHostGrid" ClipToBounds="True">
                         <Image x:Name="ImgPreview" Stretch="Uniform" Margin="6"/>

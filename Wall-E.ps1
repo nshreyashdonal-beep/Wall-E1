@@ -140,7 +140,6 @@ function Initialize-FullScreenWindow {
     $script:FullScreenWindow = [System.Windows.Markup.XamlReader]::Load($fsReader)
     $script:FullScreenWindow.Owner = $window
     $script:ImgFullScreen = $script:FullScreenWindow.FindName('ImgFullScreen')
-    $script:PnlVideoBadgeFS = $script:FullScreenWindow.FindName('PnlVideoBadgeFS')
     $script:MedPreviewFS = $script:FullScreenWindow.FindName('MedPreviewFS')
     $script:PnlVideoUnavailableFS = $script:FullScreenWindow.FindName('PnlVideoUnavailableFS')
 
@@ -175,6 +174,7 @@ function Initialize-FullScreenWindow {
             'Left'   { Invoke-ManualNav { Go-PrevImage };  $e.Handled = $true }
             'Up'     { Invoke-ManualNav { Go-NextFolder }; $e.Handled = $true }
             'Down'   { Invoke-ManualNav { Go-PrevFolder }; $e.Handled = $true }
+            'A'      { Cycle-VideoAspectRatio; $e.Handled = $true }
         }
     })
 }
@@ -224,7 +224,6 @@ function Sync-FullScreenVideo {
     $isVideo = [bool]$script:CurrentIsVideo
 
     $script:PnlVideoUnavailableFS.Visibility = 'Collapsed'
-    $script:PnlVideoBadgeFS.Visibility = if ($isVideo) { 'Visible' } else { 'Collapsed' }
     if ($script:ImgFullScreen) {
         $script:ImgFullScreen.Visibility = if ($isVideo) { 'Collapsed' } else { 'Visible' }
     }
@@ -259,6 +258,7 @@ $PnlVideoBadge = Get-El 'PnlVideoBadge'
 $TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
 $VidPreview   = Get-El 'VidPreview'
 $PreviewHost  = Get-El 'PreviewHost'
+$PreviewArea  = Get-El 'PreviewArea'
 $PvBarTop     = Get-El 'PvBarTop'
 $PvBarBottom  = Get-El 'PvBarBottom'
 $PvBarLeft    = Get-El 'PvBarLeft'
@@ -454,44 +454,87 @@ function Set-PreviewComboMode {
     }
 }
 
-# Sizes VidPreview (the in-app video preview) and its four letterbox-bar
-# Rectangles to mimic Set-VideoWallpaperAspectRatio's letterbox/pillarbox
-# math, but scoped to the preview panel's own bounds instead of the whole
-# screen - so the in-app preview shows the same shape the desktop wallpaper
-# will. Re-run automatically on PreviewHost resize (see its SizeChanged
-# handler below) using $script:LastPreviewAspectRatio.
+# Resizes PreviewHost itself (not just the content inside it) to hug the
+# actual shape of the current video, centered within PreviewArea - so
+# there's no leftover space inside the panel to letterbox/pillarbox OR
+# crop away. Replaces the old approach of stretching VidPreview to fill a
+# fixed-size host and covering the gaps with black bar Rectangles (which,
+# on "Default", cropped into the frame instead of showing all of it).
+#
+# AspectRatio -le 0 ("Default") means "no forced shape" - in that case we
+# use the video's own native width/height, read from VidPreview once the
+# file has actually opened (NaturalVideoWidth/Height are 0 before then).
+# Until that's known, the host just fills the available area normally;
+# VidPreview.Add_MediaOpened below re-calls this once the real shape is
+# known, correcting it (a brief, unavoidable flash on first open only).
+#
+# Re-run automatically on PreviewArea resize (window resize/maximize) and
+# on MediaOpened, using $script:LastPreviewAspectRatio.
 function Apply-PreviewVideoAspectRatio {
     param([double]$AspectRatio = 0)
     $script:LastPreviewAspectRatio = $AspectRatio
 
-    $hostW = $PreviewHost.ActualWidth
-    $hostH = $PreviewHost.ActualHeight
-    if ($hostW -le 0 -or $hostH -le 0) { return }
+    # Bars are no longer used (panel resizing replaces them) - keep them
+    # pinned at 0 in case anything still references them.
+    $PvBarTop.Height = 0; $PvBarBottom.Height = 0
+    $PvBarLeft.Width = 0; $PvBarRight.Width = 0
 
-    if ($AspectRatio -le 0) {
-        $VidPreview.Width  = [double]::NaN
-        $VidPreview.Height = [double]::NaN
-        $VidPreview.Stretch = [System.Windows.Media.Stretch]::UniformToFill
-        $PvBarTop.Height = 0; $PvBarBottom.Height = 0
-        $PvBarLeft.Width = 0; $PvBarRight.Width = 0
+    if (-not $script:CurrentIsVideo) {
+        Reset-PreviewHostSize
         return
     }
 
-    $targetW = $hostW
-    $targetH = $targetW / $AspectRatio
-    if ($targetH -gt $hostH) {
-        $targetH = $hostH
-        $targetW = $targetH * $AspectRatio
+    $effectiveRatio = $AspectRatio
+    if ($effectiveRatio -le 0 -and $VidPreview.NaturalVideoWidth -gt 0 -and $VidPreview.NaturalVideoHeight -gt 0) {
+        $effectiveRatio = $VidPreview.NaturalVideoWidth / $VidPreview.NaturalVideoHeight
     }
 
-    $VidPreview.Width  = $targetW
-    $VidPreview.Height = $targetH
-    $VidPreview.Stretch = [System.Windows.Media.Stretch]::Fill
+    if ($effectiveRatio -le 0) {
+        # Native shape not known yet (video hasn't finished opening) -
+        # fill the available area for now; corrected shortly via
+        # MediaOpened once the real dimensions are available.
+        Reset-PreviewHostSize
+        $VidPreview.Stretch = [System.Windows.Media.Stretch]::Uniform
+        return
+    }
 
-    $barTopBottom = [Math]::Max(0, ($hostH - $targetH) / 2)
-    $barLeftRight = [Math]::Max(0, ($hostW - $targetW) / 2)
-    $PvBarTop.Height = $barTopBottom; $PvBarBottom.Height = $barTopBottom
-    $PvBarLeft.Width = $barLeftRight; $PvBarRight.Width = $barLeftRight
+    $areaW = $PreviewArea.ActualWidth
+    $areaH = $PreviewArea.ActualHeight
+    if ($areaW -le 0 -or $areaH -le 0) { return }
+
+    $targetW = $areaW
+    $targetH = $targetW / $effectiveRatio
+    if ($targetH -gt $areaH) {
+        $targetH = $areaH
+        $targetW = $targetH * $effectiveRatio
+    }
+
+    $PreviewHost.HorizontalAlignment = 'Center'
+    $PreviewHost.VerticalAlignment = 'Center'
+    $PreviewHost.Width  = $targetW
+    $PreviewHost.Height = $targetH
+    $VidPreview.Width   = [double]::NaN
+    $VidPreview.Height  = [double]::NaN
+    $VidPreview.Stretch = [System.Windows.Media.Stretch]::Uniform
+}
+
+# Puts PreviewHost back to filling the full PreviewArea (its normal
+# behavior for images, and for videos before their native size is known).
+function Reset-PreviewHostSize {
+    $PreviewHost.HorizontalAlignment = 'Stretch'
+    $PreviewHost.VerticalAlignment = 'Stretch'
+    $PreviewHost.Width  = [double]::NaN
+    $PreviewHost.Height = [double]::NaN
+}
+
+# Advances CmbVideoAspect to the next option (Default -> 4:3 -> 16:9 ->
+# 16:10 -> 21:9 -> Default...), same as VLC's "A" shortcut. All the logic
+# already wired to CmbVideoAspect's SelectionChanged (live desktop
+# wallpaper update, in-app preview resize, overlay combo sync) kicks in
+# automatically - this just moves the selection.
+function Cycle-VideoAspectRatio {
+    if ($CmbVideoAspect.Items.Count -eq 0) { return }
+    $CmbVideoAspect.SelectedIndex = ($CmbVideoAspect.SelectedIndex + 1) % $CmbVideoAspect.Items.Count
 }
 
 function Sync-IntervalComboToConfig {
@@ -629,6 +672,7 @@ function Update-PreviewDisplay {
     $VidPreview.Visibility = 'Collapsed'
     $VidPreview.Stop()
     $VidPreview.Source = $null
+    Reset-PreviewHostSize
     Set-PreviewComboMode -Mode 'Image'
     $ImgPreview.Visibility = 'Visible'
     try {
@@ -1072,6 +1116,10 @@ $window.Add_PreviewKeyDown({
             Invoke-ManualNav { Go-PrevFolder }
             $e.Handled = $true
         }
+        'A' {
+            Cycle-VideoAspectRatio
+            $e.Handled = $true
+        }
     }
 })
 
@@ -1144,10 +1192,25 @@ $CmbPreviewStretch.Add_SelectionChanged({
     finally { $script:SyncingAspectCombos = $false }
 })
 
-# Keep the video preview's letterbox bars correctly proportioned as the
-# window (and therefore the preview panel) is resized or maximized.
-$PreviewHost.Add_SizeChanged({
+# Keep the video preview panel's size correctly proportioned as the
+# window (and therefore the available preview area) is resized or
+# maximized. Watches PreviewArea (the stable outer container), NOT
+# PreviewHost - PreviewHost's own size is now the OUTPUT of
+# Apply-PreviewVideoAspectRatio, so watching it as the trigger would
+# fire this handler every time it sets that size, looping forever.
+$PreviewArea.Add_SizeChanged({
     if ($script:CurrentIsVideo -and $VidPreview.Visibility -eq 'Visible') {
+        Apply-PreviewVideoAspectRatio -AspectRatio $script:LastPreviewAspectRatio
+    }
+})
+
+# Fires once the in-app preview has actually opened the file and knows
+# its real dimensions. On "Default" (AspectRatio -le 0) this is what lets
+# the panel snap from "filling the available area" to the video's true
+# native shape - see Apply-PreviewVideoAspectRatio's notes on the brief
+# flash this corrects.
+$VidPreview.Add_MediaOpened({
+    if ($script:CurrentIsVideo) {
         Apply-PreviewVideoAspectRatio -AspectRatio $script:LastPreviewAspectRatio
     }
 })

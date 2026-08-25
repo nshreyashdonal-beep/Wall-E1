@@ -100,6 +100,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="&#8594;  /  &#8592;"/></Border>
@@ -113,6 +114,9 @@
 
                     <Border Grid.Row="3" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="P"/></Border>
                     <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Start / stop Quick Play (stop-motion flip)"/>
+
+                    <Border Grid.Row="4" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="A"/></Border>
+                    <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Cycle the video Aspect Ratio (Default → 4:3 → 16:9 → 16:10 → 21:9 → …), VLC-style. Only has a visible effect on videos."/>
                 </Grid>
 
                 <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource KeyBrush}" FontWeight="Bold" Margin="0,12,0,4"

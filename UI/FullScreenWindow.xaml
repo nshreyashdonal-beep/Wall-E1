@@ -17,15 +17,6 @@
                       LoadedBehavior="Manual" UnloadedBehavior="Manual"
                       IsMuted="True" Visibility="Collapsed"/>
 
-        <Border x:Name="PnlVideoBadgeFS" Visibility="Collapsed"
-                HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="20"
-                Background="#CC0F0F13" BorderBrush="#D8A94A" BorderThickness="1" CornerRadius="6" Padding="12,7">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock Text="🔇" FontSize="13" Margin="0,0,7,0"/>
-                <TextBlock Text="Preview muted - desktop wallpaper may have audio" FontSize="12" Foreground="#8C8C94"/>
-            </StackPanel>
-        </Border>
-
         <!-- Fallback only - shown if MedPreviewFS itself fails to open
              (MediaFailed), so full screen doesn't just go plain black with
              no explanation. The desktop wallpaper copy is a separate
