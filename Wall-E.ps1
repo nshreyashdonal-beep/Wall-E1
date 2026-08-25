@@ -101,6 +101,7 @@ function Get-El { param($Name) $window.FindName($Name) }
 # ---------------------------------------------------------------------------
 $script:FullScreenWindow = $null
 $script:ImgFullScreen    = $null
+$script:FsMediaHost      = $null
 $script:HowToWindow      = $null
 
 # ---------------------------------------------------------------------------
@@ -140,6 +141,7 @@ function Initialize-FullScreenWindow {
     $script:FullScreenWindow = [System.Windows.Markup.XamlReader]::Load($fsReader)
     $script:FullScreenWindow.Owner = $window
     $script:ImgFullScreen = $script:FullScreenWindow.FindName('ImgFullScreen')
+    $script:FsMediaHost   = $script:FullScreenWindow.FindName('FsMediaHost')
     $script:MedPreviewFS = $script:FullScreenWindow.FindName('MedPreviewFS')
     $script:PnlVideoUnavailableFS = $script:FullScreenWindow.FindName('PnlVideoUnavailableFS')
 
@@ -158,6 +160,13 @@ function Initialize-FullScreenWindow {
 
     # Click anywhere, or Esc, to exit full screen.
     $script:FullScreenWindow.Add_MouseLeftButtonDown({ Hide-FullScreenPreview })
+
+    # A Maximized window's ActualWidth/ActualHeight are 0 until it's
+    # actually shown, so the very first fit calculation has to happen here
+    # (fires once real dimensions are known) rather than only inside
+    # Show-FullScreenPreview itself. Also re-fires if it's ever shown on a
+    # different monitor size than last time.
+    $script:FullScreenWindow.Add_SizeChanged({ Apply-FullScreenAspectRatio })
 
     # Keep the app controllable while full screen has focus. S/P are never
     # global hotkeys, so without this they'd be dead in full screen. The
@@ -189,6 +198,7 @@ function Show-FullScreenPreview {
     if ($ImgPreview.Source) { $script:ImgFullScreen.Source = $ImgPreview.Source }
     $script:ImgFullScreen.Stretch = $ImgPreview.Stretch
     Sync-FullScreenVideo
+    Apply-FullScreenAspectRatio
 
     $script:FullScreenWindow.Show()
     $script:FullScreenWindow.Activate()
@@ -525,6 +535,58 @@ function Reset-PreviewHostSize {
     $PreviewHost.VerticalAlignment = 'Stretch'
     $PreviewHost.Width  = [double]::NaN
     $PreviewHost.Height = [double]::NaN
+}
+
+# Mirrors Apply-PreviewVideoAspectRatio above, but sizes FsMediaHost against
+# the full-screen window instead of the main window's PreviewArea. Without
+# this, full screen just filled the whole monitor at the video's NATIVE
+# shape via Stretch=Uniform - never distorted, but a different crop than
+# whatever forced aspect ratio (e.g. 21:9) the main preview and the actual
+# desktop wallpaper were using, which is what read as "everything looks
+# stretched" going full screen.
+function Apply-FullScreenAspectRatio {
+    if (-not $script:FullScreenWindow -or -not $script:FsMediaHost) { return }
+
+    if (-not $script:CurrentIsVideo) {
+        Reset-FullScreenHostSize
+        return
+    }
+
+    $effectiveRatio = $script:LastPreviewAspectRatio
+    if ($effectiveRatio -le 0 -and $VidPreview.NaturalVideoWidth -gt 0 -and $VidPreview.NaturalVideoHeight -gt 0) {
+        $effectiveRatio = $VidPreview.NaturalVideoWidth / $VidPreview.NaturalVideoHeight
+    }
+    if ($effectiveRatio -le 0) {
+        Reset-FullScreenHostSize
+        return
+    }
+
+    $areaW = $script:FullScreenWindow.ActualWidth
+    $areaH = $script:FullScreenWindow.ActualHeight
+    if ($areaW -le 0 -or $areaH -le 0) { return }
+
+    $targetW = $areaW
+    $targetH = $targetW / $effectiveRatio
+    if ($targetH -gt $areaH) {
+        $targetH = $areaH
+        $targetW = $targetH * $effectiveRatio
+    }
+
+    $script:FsMediaHost.HorizontalAlignment = 'Center'
+    $script:FsMediaHost.VerticalAlignment = 'Center'
+    $script:FsMediaHost.Width  = $targetW
+    $script:FsMediaHost.Height = $targetH
+}
+
+# Puts FsMediaHost back to filling the entire full-screen window (images,
+# and videos before their native/forced ratio is known) - mirrors Reset-
+# PreviewHostSize above.
+function Reset-FullScreenHostSize {
+    if (-not $script:FsMediaHost) { return }
+    $script:FsMediaHost.HorizontalAlignment = 'Stretch'
+    $script:FsMediaHost.VerticalAlignment = 'Stretch'
+    $script:FsMediaHost.Width  = [double]::NaN
+    $script:FsMediaHost.Height = [double]::NaN
 }
 
 # Advances CmbVideoAspect to the next option (Default -> 4:3 -> 16:9 ->
@@ -1163,6 +1225,7 @@ $CmbVideoAspect.Add_SelectionChanged({
     if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         Apply-CurrentWallpaper
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+        Apply-FullScreenAspectRatio
     }
     # Keep the overlay combo (when it's currently showing aspect-ratio
     # options) reflecting the same choice - but not if THIS change is

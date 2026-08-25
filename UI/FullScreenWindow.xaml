@@ -8,14 +8,23 @@
         Background="Black">
 
     <Grid x:Name="RootGrid">
-        <Image x:Name="ImgFullScreen" Stretch="Uniform"/>
+        <!-- FsMediaHost is resized/centered in code-behind (Apply-
+             FullScreenAspectRatio) to exactly match whatever forced aspect
+             ratio the main window's preview is using. Previously the image/
+             video filled the ENTIRE monitor directly, so a video forced to
+             a cinematic ratio (e.g. 21:9) in the main preview would show at
+             its native ratio here instead - same file, two different crops,
+             which read as "everything looks stretched" going full screen. -->
+        <Grid x:Name="FsMediaHost" ClipToBounds="True">
+            <Image x:Name="ImgFullScreen" Stretch="Uniform"/>
 
-        <!-- Live, muted, looping preview mirroring the real video
-             wallpaper's Stretch mode - same rationale as MedPreview in
-             the main window. -->
-        <MediaElement x:Name="MedPreviewFS" Stretch="Uniform"
-                      LoadedBehavior="Manual" UnloadedBehavior="Manual"
-                      IsMuted="True" Visibility="Collapsed"/>
+            <!-- Live, muted, looping preview mirroring the real video
+                 wallpaper's Stretch mode - same rationale as MedPreview in
+                 the main window. -->
+            <MediaElement x:Name="MedPreviewFS" Stretch="Uniform"
+                          LoadedBehavior="Manual" UnloadedBehavior="Manual"
+                          IsMuted="True" Visibility="Collapsed"/>
+        </Grid>
 
         <!-- Fallback only - shown if MedPreviewFS itself fails to open
              (MediaFailed), so full screen doesn't just go plain black with
