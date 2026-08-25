@@ -26,6 +26,16 @@
             </StackPanel>
         </Border>
 
+        <!-- Fallback only - shown if MedPreviewFS itself fails to open
+             (MediaFailed), so full screen doesn't just go plain black with
+             no explanation. The desktop wallpaper copy is a separate
+             playback and is unaffected by this failure. -->
+        <StackPanel x:Name="PnlVideoUnavailableFS" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="▶" FontSize="28" Foreground="#D8A94A" HorizontalAlignment="Center"/>
+            <TextBlock Text="PLAYING AS VIDEO WALLPAPER" FontSize="12" FontWeight="Bold" Foreground="#D8A94A" HorizontalAlignment="Center" Margin="0,12,0,0"/>
+            <TextBlock Text="Check your desktop - couldn't load a full-screen preview for this file" FontSize="11" Foreground="#8C8C94" HorizontalAlignment="Center" Margin="0,3,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="320"/>
+        </StackPanel>
+
         <TextBlock Text="Esc or click anywhere to exit full screen"
                     FontSize="12" Foreground="#8C8C94"
                     HorizontalAlignment="Center" VerticalAlignment="Bottom"

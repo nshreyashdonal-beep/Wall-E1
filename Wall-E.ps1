@@ -141,6 +141,21 @@ function Initialize-FullScreenWindow {
     $script:FullScreenWindow.Owner = $window
     $script:ImgFullScreen = $script:FullScreenWindow.FindName('ImgFullScreen')
     $script:PnlVideoBadgeFS = $script:FullScreenWindow.FindName('PnlVideoBadgeFS')
+    $script:MedPreviewFS = $script:FullScreenWindow.FindName('MedPreviewFS')
+    $script:PnlVideoUnavailableFS = $script:FullScreenWindow.FindName('PnlVideoUnavailableFS')
+
+    # Loops on its own - mirrors VidPreview's MediaEnded in the main window.
+    $script:MedPreviewFS.Add_MediaEnded({
+        $script:MedPreviewFS.Position = [TimeSpan]::Zero
+        $script:MedPreviewFS.Play()
+    })
+    # This is a separate playback attempt from both the main-window preview
+    # and the desktop wallpaper copy - a failure here doesn't mean either
+    # of those is broken too.
+    $script:MedPreviewFS.Add_MediaFailed({
+        $script:MedPreviewFS.Visibility = 'Collapsed'
+        $script:PnlVideoUnavailableFS.Visibility = 'Visible'
+    })
 
     # Click anywhere, or Esc, to exit full screen.
     $script:FullScreenWindow.Add_MouseLeftButtonDown({ Hide-FullScreenPreview })
@@ -167,20 +182,24 @@ function Initialize-FullScreenWindow {
 function Show-FullScreenPreview {
     Initialize-FullScreenWindow
 
-    # Set the image directly here rather than via Sync-FullScreenImage -
-    # that helper only copies the image when the window IsVisible, which
-    # is still false at this point (we haven't called Show() yet), so
-    # relying on it here left the window blank/black on first open.
+    # Set directly here rather than relying only on the Sync-* helpers -
+    # those only take effect when the window IsVisible, which is still
+    # false at this point (we haven't called Show() yet), so relying on
+    # them alone left the window blank/black on first open.
     if ($ImgPreview.Source) { $script:ImgFullScreen.Source = $ImgPreview.Source }
     $script:ImgFullScreen.Stretch = $ImgPreview.Stretch
-    Sync-FullScreenVideoBadge
+    Sync-FullScreenVideo
 
     $script:FullScreenWindow.Show()
     $script:FullScreenWindow.Activate()
 }
 
 function Hide-FullScreenPreview {
-    if ($script:FullScreenWindow) { $script:FullScreenWindow.Hide() }
+    if (-not $script:FullScreenWindow) { return }
+    $script:FullScreenWindow.Hide()
+    # No point decoding/playing while the window isn't shown - Sync-
+    # FullScreenVideo restarts it fresh next time Show-FullScreenPreview runs.
+    if ($script:MedPreviewFS) { $script:MedPreviewFS.Stop() }
 }
 
 # Keeps the full-screen window's image matched to the main preview - called
@@ -190,22 +209,60 @@ function Sync-FullScreenImage {
     if ($script:FullScreenWindow -and $script:FullScreenWindow.IsVisible -and $ImgPreview.Source) {
         $script:ImgFullScreen.Source = $ImgPreview.Source
     }
-    Sync-FullScreenVideoBadge
+    Sync-FullScreenVideo
 }
 
-# Mirrors the "playing as video wallpaper" badge into the full-screen
-# window whenever it exists, regardless of whether it's currently visible.
-function Sync-FullScreenVideoBadge {
-    if (-not $script:PnlVideoBadgeFS) { return }
+# Mirrors the main window's in-app video preview (VidPreview) into the
+# full-screen window whenever it exists, regardless of whether it's
+# currently visible - so it's already showing the right thing by the time
+# Show-FullScreenPreview calls Show(). Previously this only toggled a
+# small "preview muted" note and hid the static image, without ever
+# actually playing anything in the newly-vacated space - full screen on a
+# video just showed the plain black window background.
+function Sync-FullScreenVideo {
+    if (-not $script:MedPreviewFS) { return }
     $isVideo = [bool]$script:CurrentIsVideo
+
+    $script:PnlVideoUnavailableFS.Visibility = 'Collapsed'
     $script:PnlVideoBadgeFS.Visibility = if ($isVideo) { 'Visible' } else { 'Collapsed' }
     if ($script:ImgFullScreen) {
         $script:ImgFullScreen.Visibility = if ($isVideo) { 'Collapsed' } else { 'Visible' }
+    }
+
+    if (-not $isVideo) {
+        $script:MedPreviewFS.Visibility = 'Collapsed'
+        $script:MedPreviewFS.Stop()
+        $script:MedPreviewFS.Source = $null
+        return
+    }
+
+    # A third, independent, always-muted playback of the same file (the
+    # main window has its own copy in VidPreview, and the desktop
+    # wallpaper has another via Show-VideoWallpaper) - reuse VidPreview's
+    # already-resolved Source rather than re-deriving the file path.
+    try {
+        $script:MedPreviewFS.Stop()
+        $script:MedPreviewFS.Source = $VidPreview.Source
+        $script:MedPreviewFS.Visibility = 'Visible'
+        $script:MedPreviewFS.Play()
+    }
+    catch {
+        # A failure here is specific to this full-screen copy - the main
+        # window preview and the desktop wallpaper are unaffected.
+        $script:MedPreviewFS.Visibility = 'Collapsed'
+        $script:PnlVideoUnavailableFS.Visibility = 'Visible'
     }
 }
 
 $ImgPreview   = Get-El 'ImgPreview'
 $PnlVideoBadge = Get-El 'PnlVideoBadge'
+$TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
+$VidPreview   = Get-El 'VidPreview'
+$PreviewHost  = Get-El 'PreviewHost'
+$PvBarTop     = Get-El 'PvBarTop'
+$PvBarBottom  = Get-El 'PvBarBottom'
+$PvBarLeft    = Get-El 'PvBarLeft'
+$PvBarRight   = Get-El 'PvBarRight'
 $ChkVideoAudio = Get-El 'ChkVideoAudio'
 $TxtFolder    = Get-El 'TxtFolderName'
 $TxtImageInfo = Get-El 'TxtImageInfo'
@@ -240,6 +297,20 @@ $script:CurImages   = @()
 $script:IsPlaying   = $false
 $script:IsQuickPlaying = $false
 $script:CurrentIsVideo = $false
+
+# Which "mode" the overlay CmbPreviewStretch combo is currently showing:
+# 'Image' = Fit/Fill/Stretch/Center (scales the in-app preview picture),
+# 'Video' = Default/4:3/16:9/etc (forces the video's aspect ratio, kept in
+# sync with the CmbVideoAspect combo further down). See Set-PreviewComboMode.
+$script:PreviewComboMode = 'Image'
+# Guards against CmbPreviewStretch <-> CmbVideoAspect syncing each other
+# back and forth when one of them is changed (each change to one pushes
+# the same value onto the other - see Sync-ComboSelectionByTag).
+$script:SyncingAspectCombos = $false
+# Aspect ratio last applied to the in-app video preview's letterbox bars -
+# re-applied on PreviewHost resize (window resize/maximize) so the bars
+# stay correctly proportioned. 0 = Default/no forced shape.
+$script:LastPreviewAspectRatio = 0
 
 # Millisecond ticks for the three Quick Play paces.
 $script:QuickPlaySpeeds = @{
@@ -301,6 +372,126 @@ function Sync-VideoAspectComboToConfig {
 function Get-SelectedVideoAspectRatio {
     if (-not $CmbVideoAspect.SelectedItem) { return 0 }
     return [double]$CmbVideoAspect.SelectedItem.Tag
+}
+
+# CmbPreviewStretch's item set changes depending on whether the current
+# item is an image or a video (see Set-PreviewComboMode). Each mode's
+# options are defined once here as plain Content/Tag pairs so both the
+# combo's "image mode" list and its "video mode" list (cloned from
+# CmbVideoAspect - a ComboBoxItem instance can only belong to one combo at
+# a time in WPF, so it must be cloned, not shared) can be (re)built from
+# the same source of truth.
+$script:PreviewStretchDefsImage = @(
+    @{ Content = 'Fit';     Tag = 'Uniform' },
+    @{ Content = 'Fill';    Tag = 'UniformToFill' },
+    @{ Content = 'Stretch'; Tag = 'Fill' },
+    @{ Content = 'Center';  Tag = 'None' }
+)
+
+# Replaces $Combo's items with fresh ComboBoxItems built from $Defs
+# (an array of @{Content=...; Tag=...}), trying to preserve whichever
+# Content was previously selected (falls back to the first item).
+function Set-ComboItems {
+    param($Combo, [array]$Defs)
+    $previousContent = if ($Combo.SelectedItem) { $Combo.SelectedItem.Content } else { $null }
+    $Combo.Items.Clear()
+    $toSelect = $null
+    foreach ($d in $Defs) {
+        $cbi = New-Object System.Windows.Controls.ComboBoxItem
+        $cbi.Content = $d.Content
+        $cbi.Tag = $d.Tag
+        $Combo.Items.Add($cbi) | Out-Null
+        if ($d.Content -eq $previousContent) { $toSelect = $cbi }
+    }
+    $Combo.SelectedItem = if ($toSelect) { $toSelect } else { $Combo.Items[0] }
+}
+
+# Copies $Source's selected Tag onto whichever item in $Target has a
+# matching Tag - used to keep CmbPreviewStretch and CmbVideoAspect
+# representing the same underlying aspect-ratio setting while in Video mode.
+function Sync-ComboSelectionByTag {
+    param($Source, $Target)
+    if (-not $Source.SelectedItem) { return }
+    $tag = $Source.SelectedItem.Tag
+    foreach ($item in $Target.Items) {
+        if ($item.Tag -eq $tag) { $Target.SelectedItem = $item; return }
+    }
+}
+
+# Switches the overlay combo between "Fit/Fill/Stretch/Center" (images) and
+# "Default/4:3/16:9/..." (videos, mirroring CmbVideoAspect) - called
+# whenever Update-PreviewDisplay switches the current item's type. A no-op
+# if already in the requested mode, so it's safe to call on every
+# navigation step.
+function Set-PreviewComboMode {
+    param([Parameter(Mandatory)][ValidateSet('Image', 'Video')][string]$Mode)
+    if ($script:PreviewComboMode -eq $Mode) { return }
+    $script:PreviewComboMode = $Mode
+
+    # Rebuilding a combo's Items causes a transient auto-selection (e.g.
+    # the first item) before we get a chance to restore the real value
+    # below - guarding the whole sequence stops that transient selection
+    # from being read by CmbPreviewStretch's handler and pushed onto
+    # CmbVideoAspect as if it were a real user change.
+    $script:SyncingAspectCombos = $true
+    try {
+        if ($Mode -eq 'Video') {
+            $CmbPreviewStretch.ToolTip = "Video aspect ratio (preview) - same setting as the Aspect Ratio combo below"
+            $videoDefs = foreach ($item in $CmbVideoAspect.Items) { @{ Content = $item.Content; Tag = $item.Tag } }
+            Set-ComboItems -Combo $CmbPreviewStretch -Defs $videoDefs
+            # Land on whatever CmbVideoAspect is currently set to, not
+            # the first item, so opening on a video doesn't silently
+            # reset the aspect ratio you already had selected.
+            Sync-ComboSelectionByTag -Source $CmbVideoAspect -Target $CmbPreviewStretch
+        } else {
+            $CmbPreviewStretch.ToolTip = "Preview fit mode"
+            Set-ComboItems -Combo $CmbPreviewStretch -Defs $script:PreviewStretchDefsImage
+            Sync-PreviewStretchToConfig
+        }
+    }
+    finally {
+        $script:SyncingAspectCombos = $false
+    }
+}
+
+# Sizes VidPreview (the in-app video preview) and its four letterbox-bar
+# Rectangles to mimic Set-VideoWallpaperAspectRatio's letterbox/pillarbox
+# math, but scoped to the preview panel's own bounds instead of the whole
+# screen - so the in-app preview shows the same shape the desktop wallpaper
+# will. Re-run automatically on PreviewHost resize (see its SizeChanged
+# handler below) using $script:LastPreviewAspectRatio.
+function Apply-PreviewVideoAspectRatio {
+    param([double]$AspectRatio = 0)
+    $script:LastPreviewAspectRatio = $AspectRatio
+
+    $hostW = $PreviewHost.ActualWidth
+    $hostH = $PreviewHost.ActualHeight
+    if ($hostW -le 0 -or $hostH -le 0) { return }
+
+    if ($AspectRatio -le 0) {
+        $VidPreview.Width  = [double]::NaN
+        $VidPreview.Height = [double]::NaN
+        $VidPreview.Stretch = [System.Windows.Media.Stretch]::UniformToFill
+        $PvBarTop.Height = 0; $PvBarBottom.Height = 0
+        $PvBarLeft.Width = 0; $PvBarRight.Width = 0
+        return
+    }
+
+    $targetW = $hostW
+    $targetH = $targetW / $AspectRatio
+    if ($targetH -gt $hostH) {
+        $targetH = $hostH
+        $targetW = $targetH * $AspectRatio
+    }
+
+    $VidPreview.Width  = $targetW
+    $VidPreview.Height = $targetH
+    $VidPreview.Stretch = [System.Windows.Media.Stretch]::Fill
+
+    $barTopBottom = [Math]::Max(0, ($hostH - $targetH) / 2)
+    $barLeftRight = [Math]::Max(0, ($hostW - $targetW) / 2)
+    $PvBarTop.Height = $barTopBottom; $PvBarBottom.Height = $barTopBottom
+    $PvBarLeft.Width = $barLeftRight; $PvBarRight.Width = $barLeftRight
 }
 
 function Sync-IntervalComboToConfig {
@@ -406,16 +597,39 @@ function Update-PreviewDisplay {
     $TxtImageInfo.Text = "{0}   ({1} / {2})" -f $imgFile.Name, ($script:Config.ImageIndex + 1), $script:CurImages.Count
 
     if ($script:CurrentIsVideo) {
-        # No in-app frame to show - the video only ever plays embedded on
-        # the real desktop. Swap in the badge instead of a broken image.
         $ImgPreview.Source = $null
         $ImgPreview.Visibility = 'Collapsed'
-        $PnlVideoBadge.Visibility = 'Visible'
+        $PnlVideoBadge.Visibility = 'Collapsed'
+        Set-PreviewComboMode -Mode 'Video'
+
+        # A second, independent, always-muted playback of the same file -
+        # separate from (and not frame-synced with) the copy actually
+        # playing on the desktop. Restarting it on every navigation step
+        # mirrors how the image preview already reloads its bitmap per step.
+        try {
+            $VidPreview.Stop()
+            $VidPreview.Source = New-Object System.Uri($imgFile.FullName)
+            $VidPreview.Visibility = 'Visible'
+            $VidPreview.Play()
+            Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+        }
+        catch {
+            # Couldn't open it for in-app preview (codec issue, etc.) - the
+            # desktop copy (Show-VideoWallpaper) is unaffected by this and
+            # may still play fine; just fall back to the badge here.
+            $VidPreview.Visibility = 'Collapsed'
+            $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
+            $PnlVideoBadge.Visibility = 'Visible'
+        }
         Sync-FullScreenImage
         return
     }
 
     $PnlVideoBadge.Visibility = 'Collapsed'
+    $VidPreview.Visibility = 'Collapsed'
+    $VidPreview.Stop()
+    $VidPreview.Source = $null
+    Set-PreviewComboMode -Mode 'Image'
     $ImgPreview.Visibility = 'Visible'
     try {
         $bmp = New-Object System.Windows.Media.Imaging.BitmapImage
@@ -899,10 +1113,61 @@ $CmbVideoAspect.Add_SelectionChanged({
     # playback. See the -NOTES on Show-VideoWallpaper.
     if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         Apply-CurrentWallpaper
+        Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+    }
+    # Keep the overlay combo (when it's currently showing aspect-ratio
+    # options) reflecting the same choice - but not if THIS change is
+    # itself the result of that combo syncing back here (see the guard's
+    # other use below), which would otherwise ping-pong the two forever.
+    if (-not $script:SyncingAspectCombos -and $script:PreviewComboMode -eq 'Video') {
+        $script:SyncingAspectCombos = $true
+        try { Sync-ComboSelectionByTag -Source $CmbVideoAspect -Target $CmbPreviewStretch }
+        finally { $script:SyncingAspectCombos = $false }
     }
 })
 
-$CmbPreviewStretch.Add_SelectionChanged({ Apply-PreviewStretch })
+$CmbPreviewStretch.Add_SelectionChanged({
+    # A rebuild in Set-PreviewComboMode is in progress - its own logic
+    # handles restoring the correct selection; this event is just noise
+    # from that rebuild (e.g. Set-ComboItems' transient auto-selection).
+    if ($script:SyncingAspectCombos) { return }
+
+    if ($script:PreviewComboMode -ne 'Video') {
+        Apply-PreviewStretch
+        return
+    }
+    # In Video mode this combo IS the aspect-ratio control (mirroring
+    # CmbVideoAspect) - push the choice onto CmbVideoAspect, whose own
+    # SelectionChanged (above) does the actual work of applying it live.
+    $script:SyncingAspectCombos = $true
+    try { Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbVideoAspect }
+    finally { $script:SyncingAspectCombos = $false }
+})
+
+# Keep the video preview's letterbox bars correctly proportioned as the
+# window (and therefore the preview panel) is resized or maximized.
+$PreviewHost.Add_SizeChanged({
+    if ($script:CurrentIsVideo -and $VidPreview.Visibility -eq 'Visible') {
+        Apply-PreviewVideoAspectRatio -AspectRatio $script:LastPreviewAspectRatio
+    }
+})
+
+# The in-app preview has no OnEnded concept of its own (it doesn't drive
+# Slideshow/advancing - the desktop copy via Show-VideoWallpaper does) -
+# it just always loops whatever the current video is.
+$VidPreview.Add_MediaEnded({
+    $VidPreview.Position = [TimeSpan]::Zero
+    $VidPreview.Play()
+})
+
+# Opening the file for in-app preview failed (codec issue, etc.) - this is
+# a separate playback attempt from the desktop copy, so it may well still
+# be playing fine on the desktop even though the preview couldn't open it.
+$VidPreview.Add_MediaFailed({
+    $VidPreview.Visibility = 'Collapsed'
+    $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
+    $PnlVideoBadge.Visibility = 'Visible'
+})
 
 $BtnFullScreen.Add_Click({ Show-FullScreenPreview })
 
@@ -943,6 +1208,8 @@ $window.Add_Closing({
     $script:PlayTimer.Stop()
     $script:QuickPlayTimer.Stop()
     $script:WallpaperApplyTimer.Stop()
+    try { $VidPreview.Stop() } catch { }
+    try { if ($script:MedPreviewFS) { $script:MedPreviewFS.Stop() } } catch { }
     Uninitialize-HotkeyInfrastructure
     Uninitialize-VideoWallpaperInfrastructure
     if ($script:FullScreenWindow) { $script:FullScreenWindow.Close() }

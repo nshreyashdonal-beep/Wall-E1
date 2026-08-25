@@ -111,14 +111,37 @@
             </Grid>
 
             <Grid Grid.Row="1">
-                <Border MinHeight="180" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1" CornerRadius="8">
-                    <Grid>
+                <Border x:Name="PreviewHost" MinHeight="180" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1" CornerRadius="8">
+                    <Grid x:Name="PreviewHostGrid" ClipToBounds="True">
                         <Image x:Name="ImgPreview" Stretch="Uniform" Margin="6"/>
 
-                        <!-- Shown instead of the image whenever the current
-                             item is a video - the video itself only ever
-                             plays embedded on the real desktop (WorkerW),
-                             so there's no in-app frame to preview. -->
+                        <!-- Live in-app preview of the current video, muted
+                             (its audio, if any, only ever plays through the
+                             real desktop-wallpaper copy - see
+                             Show-VideoWallpaper). A second, independent
+                             playback of the same file - it won't be
+                             frame-synced with the desktop copy, but shows
+                             the same content so you can preview framing/
+                             aspect ratio without alt-tabbing to the desktop. -->
+                        <MediaElement x:Name="VidPreview" Visibility="Collapsed" LoadedBehavior="Manual" UnloadedBehavior="Manual"
+                                      IsMuted="True" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+                        <!-- Opaque black bars, drawn ON TOP of VidPreview, that
+                             mimic the letterbox/pillarbox bars the desktop
+                             video wallpaper shows when a non-Default aspect
+                             ratio is forced (see Set-VideoWallpaperAspectRatio
+                             for why a real MediaElement can't be trusted to
+                             clip/letterbox itself reliably). Sized to 0
+                             (invisible) unless a forced ratio is selected. -->
+                        <Rectangle x:Name="PvBarTop"    Fill="Black" Height="0" VerticalAlignment="Top"    HorizontalAlignment="Stretch"/>
+                        <Rectangle x:Name="PvBarBottom" Fill="Black" Height="0" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"/>
+                        <Rectangle x:Name="PvBarLeft"   Fill="Black" Width="0"  HorizontalAlignment="Left"  VerticalAlignment="Stretch"/>
+                        <Rectangle x:Name="PvBarRight"  Fill="Black" Width="0"  HorizontalAlignment="Right" VerticalAlignment="Stretch"/>
+
+                        <!-- Fallback only - shown if the in-app video preview
+                             itself fails to open (MediaFailed), so there's
+                             still something informative on screen instead of
+                             a blank panel. Not shown in normal operation. -->
                         <StackPanel x:Name="PnlVideoBadge" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Border Width="64" Height="64" CornerRadius="32" Background="#1E1E24" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5">
                                 <Border.Effect>
@@ -127,12 +150,16 @@
                                 <TextBlock Text="▶" FontSize="24" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="4,0,0,0"/>
                             </Border>
                             <TextBlock Text="PLAYING AS VIDEO WALLPAPER" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,12,0,0"/>
-                            <TextBlock Text="Check your desktop - Wall-E has no in-app video preview" FontSize="10" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
+                            <TextBlock x:Name="TxtVideoBadgeSub" Text="Check your desktop - couldn't load an in-app preview for this file" FontSize="10" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
                         </StackPanel>
                     </Grid>
                 </Border>
 
-                <!-- Overlay toolbar: preview fit mode + full-screen button -->
+                <!-- Overlay toolbar: preview fit mode (images) / aspect ratio
+                     (videos) + full-screen button. CmbPreviewStretch's items
+                     are swapped in code-behind depending on whether the
+                     current item is an image or a video - see
+                     Set-PreviewComboMode in Wall-E.ps1. -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,10,0">
                     <ComboBox x:Name="CmbPreviewStretch" Width="92" Margin="0,0,6,0" ToolTip="Preview fit mode">
                         <ComboBoxItem Content="Fit" Tag="Uniform" IsSelected="True"/>
