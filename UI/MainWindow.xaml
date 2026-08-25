@@ -1,7 +1,7 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Wall-E" Height="850" Width="440"
-        MinHeight="500" MinWidth="380"
+        MinHeight="540" MinWidth="380"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
         Background="#0C0C10">
@@ -78,8 +78,18 @@
 
     <Grid Margin="16">
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <!-- Both rows are star-sized (not Auto) so extra space is shared
+                 proportionally, AND so the settings ScrollViewer below is
+                 always given a *finite* height to fit into. A ScrollViewer
+                 placed in an Auto row gets asked to measure at infinite
+                 height, so it just grows to fit its content and its
+                 scrollbar never engages - that's why a short window used to
+                 clip the bottom controls instead of scrolling to them.
+                 With a real MinHeight + star weight here, the row (and the
+                 ScrollViewer inside it) gets a concrete height budget, so
+                 it scrolls once content exceeds it. -->
+            <RowDefinition Height="3*" MinHeight="260"/>
+            <RowDefinition Height="2*" MinHeight="230"/>
         </Grid.RowDefinitions>
 
         <!-- Header + Preview: this row is star-sized, so it grows to fill
@@ -234,7 +244,7 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
                     <CheckBox x:Name="ChkHotkeys" Content="Hotkeys enabled (global)" Foreground="{StaticResource TextBrush}" Margin="6,0,0,8" IsChecked="True"
-                              ToolTip="Global arrows (navigate) + S (slideshow) + P (quick play) control Wall-E system-wide. Press Ctrl+Alt+W anywhere to toggle the whole group on/off without reopening the app."/>
+                              ToolTip="Global arrows (navigate) + S (slideshow) + P (quick play) + A (aspect ratio) control Wall-E system-wide. Press Ctrl+Alt+W anywhere to toggle the whole group on/off without reopening the app."/>
                     <TextBlock Text="Toggle anywhere: Ctrl+Alt+W" FontSize="10" Foreground="{StaticResource MutedTextBrush}" Margin="6,0,0,0"/>
                 </StackPanel>
             </Grid>

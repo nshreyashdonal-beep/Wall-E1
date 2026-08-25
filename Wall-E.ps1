@@ -1013,10 +1013,11 @@ function Enable-Hotkeys {
             -OnUp        { Invoke-OnUiThread { Invoke-ManualNav { Go-NextFolder } } } `
             -OnDown      { Invoke-OnUiThread { Invoke-ManualNav { Go-PrevFolder } } } `
             -OnSlideshow { Invoke-OnUiThread { if ($script:IsPlaying)      { Stop-Play }      else { Start-Play } } } `
-            -OnQuickPlay { Invoke-OnUiThread { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay } } }
+            -OnQuickPlay { Invoke-OnUiThread { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay } } } `
+            -OnAspect    { Invoke-OnUiThread { Cycle-VideoAspectRatio } }
 
     if ($ok) {
-        Set-Status "Global hotkeys active: arrows = navigate, S = slideshow, P = quick play. Press Ctrl+Alt+W anywhere to toggle them all."
+        Set-Status "Global hotkeys active: arrows = navigate, S = slideshow, P = quick play, A = aspect ratio. Press Ctrl+Alt+W anywhere to toggle them all."
         $script:Config.HotkeysEnabled = $true
     } else {
         Set-Status "Could not register global hotkeys (another app may own them)." -IsError
@@ -1057,19 +1058,19 @@ foreach ($rb in @($RbSpeedLow, $RbSpeedMedium, $RbSpeedHigh)) {
     })
 }
 
-# Keyboard shortcuts: S = toggle Slideshow, P = toggle Quick Play. These
-# are deliberately window-focused (WPF KeyDown), NOT global RegisterHotKey
-# hotkeys like the arrows - S and P are ordinary letters typed constantly
-# in every other app, so hijacking them system-wide would break normal
-# typing anywhere while this app is running.
+# Keyboard shortcuts, window-focused (WPF PreviewKeyDown) version of every
+# key in the toggleable global hotkey group: arrows, S (slideshow), P (quick
+# play), and A (aspect ratio). This local copy is what makes each key work
+# while the app window has focus EVEN IF "Hotkeys enabled" is OFF - S, P, and
+# A are ordinary letters typed constantly in every other app, so they're only
+# ever hijacked system-wide when the checkbox is explicitly turned on.
 #
-# Right/Left/Up/Down are ALSO handled here as a local fallback, same as the
-# full-screen preview window already does. When the "Global Hotkey" checkbox
-# is ON, the OS-level RegisterHotKey hook in GlobalHotkey.ps1 intercepts bare
-# arrow keys before WPF ever sees them, so this branch simply won't fire (no
-# double navigation). When the checkbox is OFF, nothing is registered at the
-# OS level, so without this fallback the arrows would do nothing at all, even
-# while the app window is focused.
+# When the "Global Hotkey" checkbox IS on, the OS-level RegisterHotKey hook in
+# GlobalHotkey.ps1 intercepts all of these bare keys (arrows, S, P, A) before
+# WPF ever sees them, so this branch simply won't fire for them (no double
+# navigation / double toggling). When the checkbox is off, nothing is
+# registered at the OS level, so without this local fallback none of these
+# keys would do anything at all, even while the app window is focused.
 #
 # IMPORTANT: this is wired to PreviewKeyDown (tunneling), not KeyDown
 # (bubbling). WPF's ComboBox/Button/CheckBox controls consume arrow keys

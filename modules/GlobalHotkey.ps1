@@ -31,6 +31,7 @@ $script:VK_DOWN  = 0x28
 $script:VK_W     = 0x57   # master on/off toggle (with Ctrl+Alt)
 $script:VK_S     = 0x53   # slideshow toggle (bare key, part of toggleable group)
 $script:VK_P     = 0x50   # quick play toggle (bare key, part of toggleable group)
+$script:VK_A     = 0x41   # cycle video aspect ratio (bare key, part of toggleable group)
 
 # Modifier flags for RegisterHotKey.
 # MOD_NOREPEAT: suppress OS auto-repeat while a key is held, so holding an
@@ -47,6 +48,7 @@ $script:HOTKEY_ID_DOWN   = 9004
 $script:HOTKEY_ID_TOGGLE    = 9005   # Ctrl+Alt+W master toggle (always registered while app runs)
 $script:HOTKEY_ID_SLIDESHOW = 9006   # bare S slideshow toggle (part of toggleable group, on/off with the arrows)
 $script:HOTKEY_ID_QUICKPLAY = 9007   # bare P quick play toggle (part of toggleable group, on/off with the arrows)
+$script:HOTKEY_ID_ASPECT    = 9008   # bare A aspect-ratio cycle (part of toggleable group, on/off with the arrows)
 
 $script:HotkeyWindowHandle = [IntPtr]::Zero
 $script:HotkeySource       = $null
@@ -146,19 +148,20 @@ function Register-GlobalArrowHotkeys {
     <#
     .SYNOPSIS
         Registers the toggleable global hotkey group - Left/Right/Up/Down plus
-        the bare S (slideshow) and P (quick play) keys - and wires each to a
-        scriptblock callback. Requires Initialize-HotkeyInfrastructure to have
-        already installed the shared hook.
+        the bare S (slideshow), P (quick play), and A (aspect ratio) keys -
+        and wires each to a scriptblock callback. Requires
+        Initialize-HotkeyInfrastructure to have already installed the shared
+        hook.
 
     .DESCRIPTION
-        S and P are registered as BARE global keys (no modifier), deliberately
-        sharing the arrows' on/off lifecycle: one "Hotkeys enabled" flip (or
-        one Ctrl+Alt+W press) activates or releases the whole group together.
-        The trade-off matches the arrows - while the group is on, bare S and P
-        won't reach other apps either - which is why Ctrl+Alt+W (always-on)
-        exists to release everything at once.
+        S, P, and A are registered as BARE global keys (no modifier),
+        deliberately sharing the arrows' on/off lifecycle: one "Hotkeys
+        enabled" flip (or one Ctrl+Alt+W press) activates or releases the
+        whole group together. The trade-off matches the arrows - while the
+        group is on, bare S, P, and A won't reach other apps either - which is
+        why Ctrl+Alt+W (always-on) exists to release everything at once.
 
-    .PARAMETER OnLeft / OnRight / OnUp / OnDown / OnSlideshow / OnQuickPlay
+    .PARAMETER OnLeft / OnRight / OnUp / OnDown / OnSlideshow / OnQuickPlay / OnAspect
         Scriptblocks invoked (on the UI thread) when each key fires.
     #>
     [CmdletBinding()]
@@ -168,7 +171,8 @@ function Register-GlobalArrowHotkeys {
         [Parameter(Mandatory)] [scriptblock]$OnUp,
         [Parameter(Mandatory)] [scriptblock]$OnDown,
         [Parameter(Mandatory)] [scriptblock]$OnSlideshow,
-        [Parameter(Mandatory)] [scriptblock]$OnQuickPlay
+        [Parameter(Mandatory)] [scriptblock]$OnQuickPlay,
+        [Parameter(Mandatory)] [scriptblock]$OnAspect
     )
 
     if (-not $script:InfraInitialized -or $script:HotkeyWindowHandle -eq [IntPtr]::Zero) {
@@ -189,6 +193,7 @@ function Register-GlobalArrowHotkeys {
     $ok = $ok -and [Win32.HotkeyNative]::RegisterHotKey($script:HotkeyWindowHandle, $script:HOTKEY_ID_DOWN,      $script:MOD_NOREPEAT, $script:VK_DOWN)
     $ok = $ok -and [Win32.HotkeyNative]::RegisterHotKey($script:HotkeyWindowHandle, $script:HOTKEY_ID_SLIDESHOW, $script:MOD_NOREPEAT, $script:VK_S)
     $ok = $ok -and [Win32.HotkeyNative]::RegisterHotKey($script:HotkeyWindowHandle, $script:HOTKEY_ID_QUICKPLAY, $script:MOD_NOREPEAT, $script:VK_P)
+    $ok = $ok -and [Win32.HotkeyNative]::RegisterHotKey($script:HotkeyWindowHandle, $script:HOTKEY_ID_ASPECT,    $script:MOD_NOREPEAT, $script:VK_A)
 
     if (-not $ok) {
         Write-Warning "Register-GlobalArrowHotkeys: one or more hotkeys failed to register (likely already claimed by another app). Unregistering any that succeeded."
@@ -202,6 +207,7 @@ function Register-GlobalArrowHotkeys {
     $script:HotkeyCallbacks[$script:HOTKEY_ID_DOWN]      = $OnDown
     $script:HotkeyCallbacks[$script:HOTKEY_ID_SLIDESHOW] = $OnSlideshow
     $script:HotkeyCallbacks[$script:HOTKEY_ID_QUICKPLAY] = $OnQuickPlay
+    $script:HotkeyCallbacks[$script:HOTKEY_ID_ASPECT]    = $OnAspect
     $script:ArrowsRegistered = $true
 
     return $true
@@ -219,7 +225,7 @@ function Unregister-GlobalArrowHotkeys {
 
     $groupIds = @(
         $script:HOTKEY_ID_LEFT, $script:HOTKEY_ID_RIGHT, $script:HOTKEY_ID_UP, $script:HOTKEY_ID_DOWN,
-        $script:HOTKEY_ID_SLIDESHOW, $script:HOTKEY_ID_QUICKPLAY
+        $script:HOTKEY_ID_SLIDESHOW, $script:HOTKEY_ID_QUICKPLAY, $script:HOTKEY_ID_ASPECT
     )
 
     if ($script:HotkeyWindowHandle -ne [IntPtr]::Zero) {
