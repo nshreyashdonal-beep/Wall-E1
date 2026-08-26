@@ -391,12 +391,12 @@ function Get-SelectedVideoAspectRatio {
 # CmbVideoAspect - a ComboBoxItem instance can only belong to one combo at
 # a time in WPF, so it must be cloned, not shared) can be (re)built from
 # the same source of truth.
-$script:PreviewStretchDefsImage = @(
-    @{ Content = 'Fit';     Tag = 'Uniform' },
-    @{ Content = 'Fill';    Tag = 'UniformToFill' },
-    @{ Content = 'Stretch'; Tag = 'Fill' },
-    @{ Content = 'Center';  Tag = 'None' }
-)
+# NOTE: there used to be a separate hardcoded $script:PreviewStretchDefsImage
+# list here, independent of CmbStyle - meaning the overlay preview combo and
+# the real "Wallpaper Style" combo could show different option sets and drift
+# out of sync with each other for images. Removed: Set-PreviewComboMode's
+# Image branch below now clones directly from $CmbStyle.Items instead,
+# exactly mirroring how its Video branch already clones from $CmbVideoAspect.
 
 # Replaces $Combo's items with fresh ComboBoxItems built from $Defs
 # (an array of @{Content=...; Tag=...}), trying to preserve whichever
@@ -454,9 +454,13 @@ function Set-PreviewComboMode {
             # reset the aspect ratio you already had selected.
             Sync-ComboSelectionByTag -Source $CmbVideoAspect -Target $CmbPreviewStretch
         } else {
-            $CmbPreviewStretch.ToolTip = "Preview fit mode"
-            Set-ComboItems -Combo $CmbPreviewStretch -Defs $script:PreviewStretchDefsImage
-            Sync-PreviewStretchToConfig
+            $CmbPreviewStretch.ToolTip = "Wallpaper style (preview) - same setting as the Wallpaper Style combo above"
+            $imageDefs = foreach ($item in $CmbStyle.Items) { @{ Content = $item.Content; Tag = $item.Tag } }
+            Set-ComboItems -Combo $CmbPreviewStretch -Defs $imageDefs
+            # Land on whatever CmbStyle is currently set to, not the first
+            # item, so opening on an image doesn't silently reset the style
+            # you already had selected.
+            Sync-ComboSelectionByTag -Source $CmbStyle -Target $CmbPreviewStretch
         }
     }
     finally {
@@ -625,26 +629,19 @@ function Get-SelectedQuickPlaySpeedName {
     return 'Medium'
 }
 
-function Sync-PreviewStretchToConfig {
-    foreach ($item in $CmbPreviewStretch.Items) {
-        if ($item.Tag -eq $script:Config.PreviewStretch) {
-            $CmbPreviewStretch.SelectedItem = $item
-            return
-        }
-    }
-    $CmbPreviewStretch.SelectedIndex = 0
-}
-
-# Applies the selected fit mode (Uniform/UniformToFill/Fill/None) to both
-# the in-panel preview and the full-screen window, and persists it.
+# Sync-PreviewStretchToConfig removed - CmbStyle's own WallpaperStyle
+# persistence (see Apply-CurrentWallpaper) now covers this; a separate
+# PreviewStretch config key was redundant now that the preview combo is
+# always just a synced mirror of CmbStyle's selection.# Applies CmbStyle's selected style (as a WPF Stretch value, via its Tag)
+# to both the in-panel preview and the full-screen window. Reads from
+# CmbStyle - not CmbPreviewStretch - so the overlay combo is purely a
+# synced mirror here, exactly like Get-SelectedVideoAspectRatio reads from
+# CmbVideoAspect rather than the overlay combo in video mode.
 function Apply-PreviewStretch {
-    if (-not $CmbPreviewStretch.SelectedItem) { return }
-    $stretch = [System.Windows.Media.Stretch]$CmbPreviewStretch.SelectedItem.Tag
+    if (-not $CmbStyle.SelectedItem) { return }
+    $stretch = [System.Windows.Media.Stretch]$CmbStyle.SelectedItem.Tag
     $ImgPreview.Stretch = $stretch
     if ($script:ImgFullScreen) { $script:ImgFullScreen.Stretch = $stretch }
-
-    $script:Config.PreviewStretch = $CmbPreviewStretch.SelectedItem.Tag
-    Save-PlayerConfig -Config $script:Config | Out-Null
 }
 
 # ---------------------------------------------------------------------------
@@ -1215,6 +1212,16 @@ $BtnRefresh.Add_Click({
 $CmbStyle.Add_SelectionChanged({
     if ($script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         Show-CurrentImage
+        Apply-PreviewStretch
+    }
+    # Keep the overlay combo (when it's currently showing wallpaper-style
+    # options) reflecting the same choice - but not if THIS change is
+    # itself the result of that combo syncing back here (see the guard's
+    # other use below), which would otherwise ping-pong the two forever.
+    if (-not $script:SyncingAspectCombos -and $script:PreviewComboMode -ne 'Video') {
+        $script:SyncingAspectCombos = $true
+        try { Sync-ComboSelectionByTag -Source $CmbStyle -Target $CmbPreviewStretch }
+        finally { $script:SyncingAspectCombos = $false }
     }
 })
 
@@ -1244,15 +1251,20 @@ $CmbPreviewStretch.Add_SelectionChanged({
     # from that rebuild (e.g. Set-ComboItems' transient auto-selection).
     if ($script:SyncingAspectCombos) { return }
 
-    if ($script:PreviewComboMode -ne 'Video') {
-        Apply-PreviewStretch
-        return
-    }
-    # In Video mode this combo IS the aspect-ratio control (mirroring
-    # CmbVideoAspect) - push the choice onto CmbVideoAspect, whose own
-    # SelectionChanged (above) does the actual work of applying it live.
+    # This combo is always just a synced mirror of whichever real control
+    # matches its current mode - CmbVideoAspect for videos, CmbStyle for
+    # images (see Set-PreviewComboMode). That real control's own
+    # SelectionChanged (above) does the actual applying; pushing the
+    # choice there and stopping is what keeps both directions consistent
+    # instead of this combo also independently applying anything itself.
     $script:SyncingAspectCombos = $true
-    try { Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbVideoAspect }
+    try {
+        if ($script:PreviewComboMode -eq 'Video') {
+            Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbVideoAspect
+        } else {
+            Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbStyle
+        }
+    }
     finally { $script:SyncingAspectCombos = $false }
 })
 
@@ -1357,7 +1369,6 @@ $window.Add_Loaded({
     Sync-IntervalComboToConfig
 
     Sync-QuickPlaySpeedToConfig
-    Sync-PreviewStretchToConfig
     Apply-PreviewStretch
     $ChkShuffle.IsChecked = [bool]$script:Config.ShuffleEnabled
 

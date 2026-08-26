@@ -295,11 +295,19 @@
                 <StackPanel Grid.Column="0">
                     <TextBlock Text="WALLPAPER STYLE (IMAGES)" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/>
                     <ComboBox x:Name="CmbStyle" Margin="0,4,6,0" ToolTip="Applies to still-image wallpapers only. Videos use the Aspect Ratio combo below.">
-                        <ComboBoxItem Content="Fill"/>
-                        <ComboBoxItem Content="Fit"/>
-                        <ComboBoxItem Content="Stretch"/>
-                        <ComboBoxItem Content="Center"/>
-                        <ComboBoxItem Content="Span"/>
+                        <!-- Tag = the WPF Stretch value that visually
+                             approximates this Windows wallpaper style, used
+                             to drive the overlay preview combo (see
+                             Set-PreviewComboMode) so it never drifts out of
+                             sync with the real setting again. Span (spread
+                             across all monitors) has no exact single-panel
+                             equivalent - UniformToFill is the closest visual
+                             approximation for previewing it here. -->
+                        <ComboBoxItem Content="Fill"    Tag="UniformToFill"/>
+                        <ComboBoxItem Content="Fit"     Tag="Uniform"/>
+                        <ComboBoxItem Content="Stretch" Tag="Fill"/>
+                        <ComboBoxItem Content="Center"  Tag="None"/>
+                        <ComboBoxItem Content="Span"    Tag="UniformToFill"/>
                     </ComboBox>
                 </StackPanel>
                 <StackPanel Grid.Column="1" VerticalAlignment="Bottom">
