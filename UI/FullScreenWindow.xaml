@@ -20,8 +20,14 @@
 
             <!-- Live, muted, looping preview mirroring the real video
                  wallpaper's Stretch mode - same rationale as MedPreview in
-                 the main window. -->
-            <MediaElement x:Name="MedPreviewFS" Stretch="Uniform"
+                 the main window. Stretch is NOT hardcoded here (was
+                 "Uniform", which showed the whole frame letterboxed on
+                 Default instead of matching the real wallpaper's crop-to-
+                 fill look) - it's set dynamically in code-behind by
+                 Apply-FullScreenAspectRatio / Reset-FullScreenHostSize to
+                 UniformToFill (Default) or Fill (forced ratio), mirroring
+                 Set-VideoWallpaperAspectRatio exactly. -->
+            <MediaElement x:Name="MedPreviewFS"
                           LoadedBehavior="Manual" UnloadedBehavior="Manual"
                           IsMuted="True" Visibility="Collapsed"/>
         </Grid>

@@ -548,6 +548,19 @@ function Reset-PreviewHostSize {
 # whatever forced aspect ratio (e.g. 21:9) the main preview and the actual
 # desktop wallpaper were using, which is what read as "everything looks
 # stretched" going full screen.
+#
+# On top of sizing FsMediaHost, this also has to set MedPreviewFS's Stretch
+# mode to match how the REAL desktop video wallpaper renders (see
+# Set-VideoWallpaperAspectRatio in modules/VideoWallpaper.ps1):
+#   - Default (no forced ratio): the real wallpaper covers the whole
+#     screen with Stretch=UniformToFill (crops the video, no bars).
+#     MedPreviewFS/ImgFullScreen were hardcoded to Stretch="Uniform" in
+#     XAML, which instead shows the whole frame letterboxed - so on
+#     Default the full-screen preview never matched the actual wallpaper.
+#   - Forced ratio (e.g. 21:9): the real wallpaper stretches the source to
+#     exactly fill the forced-ratio rectangle with Stretch=Fill. FsMedia-
+#     Host is already sized to that exact rectangle below, so Fill here
+#     produces the same crop the real wallpaper shows.
 function Apply-FullScreenAspectRatio {
     if (-not $script:FullScreenWindow -or -not $script:FsMediaHost) { return }
 
@@ -580,17 +593,33 @@ function Apply-FullScreenAspectRatio {
     $script:FsMediaHost.VerticalAlignment = 'Center'
     $script:FsMediaHost.Width  = $targetW
     $script:FsMediaHost.Height = $targetH
+
+    # Forced ratio active - FsMediaHost is now sized to exactly that
+    # rectangle, so Fill (not Uniform) stretches the source to match the
+    # real wallpaper's forced-DAR behavior exactly, same as
+    # Set-VideoWallpaperAspectRatio does for the actual desktop wallpaper.
+    if ($script:MedPreviewFS) { $script:MedPreviewFS.Stretch = [System.Windows.Media.Stretch]::Fill }
 }
 
 # Puts FsMediaHost back to filling the entire full-screen window (images,
 # and videos before their native/forced ratio is known) - mirrors Reset-
 # PreviewHostSize above.
+#
+# For videos on "Default" (no forced ratio), MedPreviewFS's Stretch is set
+# to UniformToFill here so the full-screen preview crops to cover the
+# screen exactly like the real desktop video wallpaper does on Default
+# (see Set-VideoWallpaperAspectRatio) - matching the fix in
+# Apply-FullScreenAspectRatio above for the forced-ratio case.
 function Reset-FullScreenHostSize {
     if (-not $script:FsMediaHost) { return }
     $script:FsMediaHost.HorizontalAlignment = 'Stretch'
     $script:FsMediaHost.VerticalAlignment = 'Stretch'
     $script:FsMediaHost.Width  = [double]::NaN
     $script:FsMediaHost.Height = [double]::NaN
+
+    if ($script:MedPreviewFS -and $script:CurrentIsVideo) {
+        $script:MedPreviewFS.Stretch = [System.Windows.Media.Stretch]::UniformToFill
+    }
 }
 
 # Advances CmbVideoAspect to the next option (Default -> 4:3 -> 16:9 ->
