@@ -8,23 +8,30 @@
         Background="Black">
 
     <Grid x:Name="RootGrid">
-        <!-- FsMediaHost is resized/centered in code-behind (Apply-
-             FullScreenAspectRatio) to exactly match whatever forced aspect
-             ratio the main window's preview is using. Previously the image/
-             video filled the ENTIRE monitor directly, so a video forced to
-             a cinematic ratio (e.g. 21:9) in the main preview would show at
-             its native ratio here instead - same file, two different crops,
-             which read as "everything looks stretched" going full screen. -->
-        <Grid x:Name="FsMediaHost" ClipToBounds="True">
-            <Image x:Name="ImgFullScreen" Stretch="Uniform"/>
+        <Image x:Name="ImgFullScreen" Stretch="Uniform"/>
 
-            <!-- Live, muted, looping preview mirroring the real video
-                 wallpaper's Stretch mode - same rationale as MedPreview in
-                 the main window. -->
-            <MediaElement x:Name="MedPreviewFS" Stretch="Uniform"
-                          LoadedBehavior="Manual" UnloadedBehavior="Manual"
-                          IsMuted="True" Visibility="Collapsed"/>
-        </Grid>
+        <!-- Live, muted, looping preview - sized/stretched in code-behind
+             (see Apply-FullScreenVideoAspectRatio in Wall-E.ps1) to match
+             EXACTLY what Show-VideoWallpaper puts on the real desktop:
+             same crop-to-fill on "Default", same forced-ratio letterbox
+             math on a specific aspect ratio. Previously this was hardcoded
+             to Stretch="Uniform" (always showing the untouched native
+             frame) regardless of the selected aspect ratio, so it could
+             visibly disagree with the actual wallpaper. -->
+        <MediaElement x:Name="MedPreviewFS" Stretch="UniformToFill"
+                      LoadedBehavior="Manual" UnloadedBehavior="Manual"
+                      IsMuted="True" Visibility="Collapsed"/>
+
+        <!-- Opaque black masks, drawn ON TOP of MedPreviewFS - same
+             rationale as VideoWallpaper.ps1's BarTop/Bottom/Left/Right:
+             a MediaElement's video surface can ignore its own WPF layout
+             bounds, so these guarantee the letterbox/pillarbox bars show
+             correctly regardless. Sized to 0 (invisible) unless a forced
+             aspect ratio is active. -->
+        <Rectangle x:Name="FsBarTop"    Fill="Black" Height="0" VerticalAlignment="Top"    HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="FsBarBottom" Fill="Black" Height="0" VerticalAlignment="Bottom" HorizontalAlignment="Stretch"/>
+        <Rectangle x:Name="FsBarLeft"   Fill="Black" Width="0"  HorizontalAlignment="Left"  VerticalAlignment="Stretch"/>
+        <Rectangle x:Name="FsBarRight"  Fill="Black" Width="0"  HorizontalAlignment="Right" VerticalAlignment="Stretch"/>
 
         <!-- Fallback only - shown if MedPreviewFS itself fails to open
              (MediaFailed), so full screen doesn't just go plain black with

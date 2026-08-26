@@ -131,16 +131,16 @@
                     </Grid.RowDefinitions>
 
                     <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="Ctrl+Alt+W"/></Border>
-                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Turn the ENTIRE hotkey group above (arrows + S + P + A) ON / OFF from anywhere — the master switch (see the note below)"/>
+                    <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Turn the ENTIRE hotkey group above (arrows + S + P) ON / OFF from anywhere — the master switch (see the note below)"/>
 
                     <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource KeyChip}"><TextBlock Style="{StaticResource KeyText}" Text="Esc"/></Border>
-                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Exit the full-screen preview (S / P / A / arrows also work while full screen is open)"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource KeyDesc}" Margin="0,5" Text="Exit the full-screen preview (S / P / arrows also work while full screen is open)"/>
                 </Grid>
 
                 <Border Background="#1A140A" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,14,0,0">
                     <TextBlock Style="{StaticResource Body}" Foreground="{StaticResource TextBrush}">
                         <Run Text="Heads up:" FontWeight="Bold" Foreground="{StaticResource AccentBrush}"/>
-                        <Run Text=" the group keys are registered system-wide, so while hotkeys are ON, the bare arrows, S, P and A won't reach other apps (typing, browsing, gaming). When you're done changing wallpapers, press "/>
+                        <Run Text=" the group keys are registered system-wide, so while hotkeys are ON, the bare arrows, S and P won't reach other apps (typing, browsing, gaming). When you're done changing wallpapers, press "/>
                         <Run Text="Ctrl+Alt+W" FontFamily="Consolas" FontWeight="Bold" Foreground="{StaticResource KeyBrush}"/>
                         <Run Text=" from anywhere to release them all — and press it again later to take control back, without ever reopening the app."/>
                     </TextBlock>

@@ -101,7 +101,6 @@ function Get-El { param($Name) $window.FindName($Name) }
 # ---------------------------------------------------------------------------
 $script:FullScreenWindow = $null
 $script:ImgFullScreen    = $null
-$script:FsMediaHost      = $null
 $script:HowToWindow      = $null
 
 # ---------------------------------------------------------------------------
@@ -141,8 +140,11 @@ function Initialize-FullScreenWindow {
     $script:FullScreenWindow = [System.Windows.Markup.XamlReader]::Load($fsReader)
     $script:FullScreenWindow.Owner = $window
     $script:ImgFullScreen = $script:FullScreenWindow.FindName('ImgFullScreen')
-    $script:FsMediaHost   = $script:FullScreenWindow.FindName('FsMediaHost')
     $script:MedPreviewFS = $script:FullScreenWindow.FindName('MedPreviewFS')
+    $script:FsBarTop    = $script:FullScreenWindow.FindName('FsBarTop')
+    $script:FsBarBottom = $script:FullScreenWindow.FindName('FsBarBottom')
+    $script:FsBarLeft   = $script:FullScreenWindow.FindName('FsBarLeft')
+    $script:FsBarRight  = $script:FullScreenWindow.FindName('FsBarRight')
     $script:PnlVideoUnavailableFS = $script:FullScreenWindow.FindName('PnlVideoUnavailableFS')
 
     # Loops on its own - mirrors VidPreview's MediaEnded in the main window.
@@ -160,13 +162,6 @@ function Initialize-FullScreenWindow {
 
     # Click anywhere, or Esc, to exit full screen.
     $script:FullScreenWindow.Add_MouseLeftButtonDown({ Hide-FullScreenPreview })
-
-    # A Maximized window's ActualWidth/ActualHeight are 0 until it's
-    # actually shown, so the very first fit calculation has to happen here
-    # (fires once real dimensions are known) rather than only inside
-    # Show-FullScreenPreview itself. Also re-fires if it's ever shown on a
-    # different monitor size than last time.
-    $script:FullScreenWindow.Add_SizeChanged({ Apply-FullScreenAspectRatio })
 
     # Keep the app controllable while full screen has focus. S/P are never
     # global hotkeys, so without this they'd be dead in full screen. The
@@ -198,7 +193,6 @@ function Show-FullScreenPreview {
     if ($ImgPreview.Source) { $script:ImgFullScreen.Source = $ImgPreview.Source }
     $script:ImgFullScreen.Stretch = $ImgPreview.Stretch
     Sync-FullScreenVideo
-    Apply-FullScreenAspectRatio
 
     $script:FullScreenWindow.Show()
     $script:FullScreenWindow.Activate()
@@ -254,6 +248,7 @@ function Sync-FullScreenVideo {
         $script:MedPreviewFS.Source = $VidPreview.Source
         $script:MedPreviewFS.Visibility = 'Visible'
         $script:MedPreviewFS.Play()
+        Apply-FullScreenVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
     }
     catch {
         # A failure here is specific to this full-screen copy - the main
@@ -261,6 +256,60 @@ function Sync-FullScreenVideo {
         $script:MedPreviewFS.Visibility = 'Collapsed'
         $script:PnlVideoUnavailableFS.Visibility = 'Visible'
     }
+}
+
+# Sizes/stretches MedPreviewFS (and its four black-bar masks) to EXACTLY
+# match what Show-VideoWallpaper puts on the real desktop for the same
+# AspectRatio - see Set-VideoWallpaperAspectRatio in
+# modules\VideoWallpaper.ps1, whose math this deliberately mirrors line
+# for line. The two need to agree pixel-for-pixel: "Default" crops to
+# cover the screen (Stretch=UniformToFill, no bars), a forced ratio picks
+# the largest rectangle of that shape that fits inside the screen and
+# stretches the source to fill exactly that (Stretch=Fill, letterbox/
+# pillarbox bars for the rest). Using $script:FullScreenWindow's own
+# ActualWidth/Height (rather than re-deriving screen bounds) since the
+# window is already maximized to fill whichever screen it's on, which is
+# the same screen the wallpaper targets on a single-monitor setup.
+function Apply-FullScreenVideoAspectRatio {
+    param([double]$AspectRatio = 0)
+    if (-not $script:MedPreviewFS) { return }
+
+    $winW = $script:FullScreenWindow.ActualWidth
+    $winH = $script:FullScreenWindow.ActualHeight
+    if ($winW -le 0 -or $winH -le 0) { return }
+
+    if ($AspectRatio -le 0) {
+        # Default - no forced shape, crop to cover the whole screen, no
+        # bars. Matches Set-VideoWallpaperAspectRatio's Default branch.
+        $script:MedPreviewFS.HorizontalAlignment = 'Stretch'
+        $script:MedPreviewFS.VerticalAlignment    = 'Stretch'
+        $script:MedPreviewFS.Width  = [double]::NaN
+        $script:MedPreviewFS.Height = [double]::NaN
+        $script:MedPreviewFS.Stretch = [System.Windows.Media.Stretch]::UniformToFill
+        $script:FsBarTop.Height = 0; $script:FsBarBottom.Height = 0
+        $script:FsBarLeft.Width = 0; $script:FsBarRight.Width = 0
+        return
+    }
+
+    # Largest rectangle with the target ratio that still fits inside the
+    # window bounds - identical formula to Set-VideoWallpaperAspectRatio.
+    $targetW = $winW
+    $targetH = $targetW / $AspectRatio
+    if ($targetH -gt $winH) {
+        $targetH = $winH
+        $targetW = $targetH * $AspectRatio
+    }
+
+    $script:MedPreviewFS.HorizontalAlignment = 'Center'
+    $script:MedPreviewFS.VerticalAlignment    = 'Center'
+    $script:MedPreviewFS.Width  = $targetW
+    $script:MedPreviewFS.Height = $targetH
+    $script:MedPreviewFS.Stretch = [System.Windows.Media.Stretch]::Fill
+
+    $barTopBottom = [Math]::Max(0, ($winH - $targetH) / 2)
+    $barLeftRight = [Math]::Max(0, ($winW - $targetW) / 2)
+    $script:FsBarTop.Height = $barTopBottom; $script:FsBarBottom.Height = $barTopBottom
+    $script:FsBarLeft.Width = $barLeftRight; $script:FsBarRight.Width = $barLeftRight
 }
 
 $ImgPreview   = Get-El 'ImgPreview'
@@ -391,12 +440,12 @@ function Get-SelectedVideoAspectRatio {
 # CmbVideoAspect - a ComboBoxItem instance can only belong to one combo at
 # a time in WPF, so it must be cloned, not shared) can be (re)built from
 # the same source of truth.
-# NOTE: there used to be a separate hardcoded $script:PreviewStretchDefsImage
-# list here, independent of CmbStyle - meaning the overlay preview combo and
-# the real "Wallpaper Style" combo could show different option sets and drift
-# out of sync with each other for images. Removed: Set-PreviewComboMode's
-# Image branch below now clones directly from $CmbStyle.Items instead,
-# exactly mirroring how its Video branch already clones from $CmbVideoAspect.
+$script:PreviewStretchDefsImage = @(
+    @{ Content = 'Fit';     Tag = 'Uniform' },
+    @{ Content = 'Fill';    Tag = 'UniformToFill' },
+    @{ Content = 'Stretch'; Tag = 'Fill' },
+    @{ Content = 'Center';  Tag = 'None' }
+)
 
 # Replaces $Combo's items with fresh ComboBoxItems built from $Defs
 # (an array of @{Content=...; Tag=...}), trying to preserve whichever
@@ -454,13 +503,9 @@ function Set-PreviewComboMode {
             # reset the aspect ratio you already had selected.
             Sync-ComboSelectionByTag -Source $CmbVideoAspect -Target $CmbPreviewStretch
         } else {
-            $CmbPreviewStretch.ToolTip = "Wallpaper style (preview) - same setting as the Wallpaper Style combo above"
-            $imageDefs = foreach ($item in $CmbStyle.Items) { @{ Content = $item.Content; Tag = $item.Tag } }
-            Set-ComboItems -Combo $CmbPreviewStretch -Defs $imageDefs
-            # Land on whatever CmbStyle is currently set to, not the first
-            # item, so opening on an image doesn't silently reset the style
-            # you already had selected.
-            Sync-ComboSelectionByTag -Source $CmbStyle -Target $CmbPreviewStretch
+            $CmbPreviewStretch.ToolTip = "Preview fit mode"
+            Set-ComboItems -Combo $CmbPreviewStretch -Defs $script:PreviewStretchDefsImage
+            Sync-PreviewStretchToConfig
         }
     }
     finally {
@@ -541,58 +586,6 @@ function Reset-PreviewHostSize {
     $PreviewHost.Height = [double]::NaN
 }
 
-# Mirrors Apply-PreviewVideoAspectRatio above, but sizes FsMediaHost against
-# the full-screen window instead of the main window's PreviewArea. Without
-# this, full screen just filled the whole monitor at the video's NATIVE
-# shape via Stretch=Uniform - never distorted, but a different crop than
-# whatever forced aspect ratio (e.g. 21:9) the main preview and the actual
-# desktop wallpaper were using, which is what read as "everything looks
-# stretched" going full screen.
-function Apply-FullScreenAspectRatio {
-    if (-not $script:FullScreenWindow -or -not $script:FsMediaHost) { return }
-
-    if (-not $script:CurrentIsVideo) {
-        Reset-FullScreenHostSize
-        return
-    }
-
-    $effectiveRatio = $script:LastPreviewAspectRatio
-    if ($effectiveRatio -le 0 -and $VidPreview.NaturalVideoWidth -gt 0 -and $VidPreview.NaturalVideoHeight -gt 0) {
-        $effectiveRatio = $VidPreview.NaturalVideoWidth / $VidPreview.NaturalVideoHeight
-    }
-    if ($effectiveRatio -le 0) {
-        Reset-FullScreenHostSize
-        return
-    }
-
-    $areaW = $script:FullScreenWindow.ActualWidth
-    $areaH = $script:FullScreenWindow.ActualHeight
-    if ($areaW -le 0 -or $areaH -le 0) { return }
-
-    $targetW = $areaW
-    $targetH = $targetW / $effectiveRatio
-    if ($targetH -gt $areaH) {
-        $targetH = $areaH
-        $targetW = $targetH * $effectiveRatio
-    }
-
-    $script:FsMediaHost.HorizontalAlignment = 'Center'
-    $script:FsMediaHost.VerticalAlignment = 'Center'
-    $script:FsMediaHost.Width  = $targetW
-    $script:FsMediaHost.Height = $targetH
-}
-
-# Puts FsMediaHost back to filling the entire full-screen window (images,
-# and videos before their native/forced ratio is known) - mirrors Reset-
-# PreviewHostSize above.
-function Reset-FullScreenHostSize {
-    if (-not $script:FsMediaHost) { return }
-    $script:FsMediaHost.HorizontalAlignment = 'Stretch'
-    $script:FsMediaHost.VerticalAlignment = 'Stretch'
-    $script:FsMediaHost.Width  = [double]::NaN
-    $script:FsMediaHost.Height = [double]::NaN
-}
-
 # Advances CmbVideoAspect to the next option (Default -> 4:3 -> 16:9 ->
 # 16:10 -> 21:9 -> Default...), same as VLC's "A" shortcut. All the logic
 # already wired to CmbVideoAspect's SelectionChanged (live desktop
@@ -629,19 +622,26 @@ function Get-SelectedQuickPlaySpeedName {
     return 'Medium'
 }
 
-# Sync-PreviewStretchToConfig removed - CmbStyle's own WallpaperStyle
-# persistence (see Apply-CurrentWallpaper) now covers this; a separate
-# PreviewStretch config key was redundant now that the preview combo is
-# always just a synced mirror of CmbStyle's selection.# Applies CmbStyle's selected style (as a WPF Stretch value, via its Tag)
-# to both the in-panel preview and the full-screen window. Reads from
-# CmbStyle - not CmbPreviewStretch - so the overlay combo is purely a
-# synced mirror here, exactly like Get-SelectedVideoAspectRatio reads from
-# CmbVideoAspect rather than the overlay combo in video mode.
+function Sync-PreviewStretchToConfig {
+    foreach ($item in $CmbPreviewStretch.Items) {
+        if ($item.Tag -eq $script:Config.PreviewStretch) {
+            $CmbPreviewStretch.SelectedItem = $item
+            return
+        }
+    }
+    $CmbPreviewStretch.SelectedIndex = 0
+}
+
+# Applies the selected fit mode (Uniform/UniformToFill/Fill/None) to both
+# the in-panel preview and the full-screen window, and persists it.
 function Apply-PreviewStretch {
-    if (-not $CmbStyle.SelectedItem) { return }
-    $stretch = [System.Windows.Media.Stretch]$CmbStyle.SelectedItem.Tag
+    if (-not $CmbPreviewStretch.SelectedItem) { return }
+    $stretch = [System.Windows.Media.Stretch]$CmbPreviewStretch.SelectedItem.Tag
     $ImgPreview.Stretch = $stretch
     if ($script:ImgFullScreen) { $script:ImgFullScreen.Stretch = $stretch }
+
+    $script:Config.PreviewStretch = $CmbPreviewStretch.SelectedItem.Tag
+    Save-PlayerConfig -Config $script:Config | Out-Null
 }
 
 # ---------------------------------------------------------------------------
@@ -1072,11 +1072,10 @@ function Enable-Hotkeys {
             -OnUp        { Invoke-OnUiThread { Invoke-ManualNav { Go-NextFolder } } } `
             -OnDown      { Invoke-OnUiThread { Invoke-ManualNav { Go-PrevFolder } } } `
             -OnSlideshow { Invoke-OnUiThread { if ($script:IsPlaying)      { Stop-Play }      else { Start-Play } } } `
-            -OnQuickPlay { Invoke-OnUiThread { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay } } } `
-            -OnAspect    { Invoke-OnUiThread { Cycle-VideoAspectRatio } }
+            -OnQuickPlay { Invoke-OnUiThread { if ($script:IsQuickPlaying) { Stop-QuickPlay } else { Start-QuickPlay } } }
 
     if ($ok) {
-        Set-Status "Global hotkeys active: arrows = navigate, S = slideshow, P = quick play, A = aspect ratio. Press Ctrl+Alt+W anywhere to toggle them all."
+        Set-Status "Global hotkeys active: arrows = navigate, S = slideshow, P = quick play. Press Ctrl+Alt+W anywhere to toggle them all."
         $script:Config.HotkeysEnabled = $true
     } else {
         Set-Status "Could not register global hotkeys (another app may own them)." -IsError
@@ -1117,19 +1116,19 @@ foreach ($rb in @($RbSpeedLow, $RbSpeedMedium, $RbSpeedHigh)) {
     })
 }
 
-# Keyboard shortcuts, window-focused (WPF PreviewKeyDown) version of every
-# key in the toggleable global hotkey group: arrows, S (slideshow), P (quick
-# play), and A (aspect ratio). This local copy is what makes each key work
-# while the app window has focus EVEN IF "Hotkeys enabled" is OFF - S, P, and
-# A are ordinary letters typed constantly in every other app, so they're only
-# ever hijacked system-wide when the checkbox is explicitly turned on.
+# Keyboard shortcuts: S = toggle Slideshow, P = toggle Quick Play. These
+# are deliberately window-focused (WPF KeyDown), NOT global RegisterHotKey
+# hotkeys like the arrows - S and P are ordinary letters typed constantly
+# in every other app, so hijacking them system-wide would break normal
+# typing anywhere while this app is running.
 #
-# When the "Global Hotkey" checkbox IS on, the OS-level RegisterHotKey hook in
-# GlobalHotkey.ps1 intercepts all of these bare keys (arrows, S, P, A) before
-# WPF ever sees them, so this branch simply won't fire for them (no double
-# navigation / double toggling). When the checkbox is off, nothing is
-# registered at the OS level, so without this local fallback none of these
-# keys would do anything at all, even while the app window is focused.
+# Right/Left/Up/Down are ALSO handled here as a local fallback, same as the
+# full-screen preview window already does. When the "Global Hotkey" checkbox
+# is ON, the OS-level RegisterHotKey hook in GlobalHotkey.ps1 intercepts bare
+# arrow keys before WPF ever sees them, so this branch simply won't fire (no
+# double navigation). When the checkbox is OFF, nothing is registered at the
+# OS level, so without this fallback the arrows would do nothing at all, even
+# while the app window is focused.
 #
 # IMPORTANT: this is wired to PreviewKeyDown (tunneling), not KeyDown
 # (bubbling). WPF's ComboBox/Button/CheckBox controls consume arrow keys
@@ -1212,16 +1211,6 @@ $BtnRefresh.Add_Click({
 $CmbStyle.Add_SelectionChanged({
     if ($script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         Show-CurrentImage
-        Apply-PreviewStretch
-    }
-    # Keep the overlay combo (when it's currently showing wallpaper-style
-    # options) reflecting the same choice - but not if THIS change is
-    # itself the result of that combo syncing back here (see the guard's
-    # other use below), which would otherwise ping-pong the two forever.
-    if (-not $script:SyncingAspectCombos -and $script:PreviewComboMode -ne 'Video') {
-        $script:SyncingAspectCombos = $true
-        try { Sync-ComboSelectionByTag -Source $CmbStyle -Target $CmbPreviewStretch }
-        finally { $script:SyncingAspectCombos = $false }
     }
 })
 
@@ -1232,7 +1221,9 @@ $CmbVideoAspect.Add_SelectionChanged({
     if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         Apply-CurrentWallpaper
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
-        Apply-FullScreenAspectRatio
+        if ($script:FullScreenWindow -and $script:FullScreenWindow.IsVisible) {
+            Apply-FullScreenVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+        }
     }
     # Keep the overlay combo (when it's currently showing aspect-ratio
     # options) reflecting the same choice - but not if THIS change is
@@ -1251,20 +1242,15 @@ $CmbPreviewStretch.Add_SelectionChanged({
     # from that rebuild (e.g. Set-ComboItems' transient auto-selection).
     if ($script:SyncingAspectCombos) { return }
 
-    # This combo is always just a synced mirror of whichever real control
-    # matches its current mode - CmbVideoAspect for videos, CmbStyle for
-    # images (see Set-PreviewComboMode). That real control's own
-    # SelectionChanged (above) does the actual applying; pushing the
-    # choice there and stopping is what keeps both directions consistent
-    # instead of this combo also independently applying anything itself.
-    $script:SyncingAspectCombos = $true
-    try {
-        if ($script:PreviewComboMode -eq 'Video') {
-            Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbVideoAspect
-        } else {
-            Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbStyle
-        }
+    if ($script:PreviewComboMode -ne 'Video') {
+        Apply-PreviewStretch
+        return
     }
+    # In Video mode this combo IS the aspect-ratio control (mirroring
+    # CmbVideoAspect) - push the choice onto CmbVideoAspect, whose own
+    # SelectionChanged (above) does the actual work of applying it live.
+    $script:SyncingAspectCombos = $true
+    try { Sync-ComboSelectionByTag -Source $CmbPreviewStretch -Target $CmbVideoAspect }
     finally { $script:SyncingAspectCombos = $false }
 })
 
@@ -1369,6 +1355,7 @@ $window.Add_Loaded({
     Sync-IntervalComboToConfig
 
     Sync-QuickPlaySpeedToConfig
+    Sync-PreviewStretchToConfig
     Apply-PreviewStretch
     $ChkShuffle.IsChecked = [bool]$script:Config.ShuffleEnabled
 
