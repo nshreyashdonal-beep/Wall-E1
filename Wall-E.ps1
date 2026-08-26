@@ -269,6 +269,38 @@ $TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
 $VidPreview   = Get-El 'VidPreview'
 $PreviewHost  = Get-El 'PreviewHost'
 $PreviewArea  = Get-El 'PreviewArea'
+$RootGrid     = Get-El 'RootGrid'
+$HeaderGrid   = Get-El 'HeaderGrid'
+$PreviewRowDef = Get-El 'PreviewRowDef'
+
+# The GridLength Row 0 (PreviewRowDef) is reset to whenever a video's exact
+# box height isn't known/applicable (images, or a video before its native
+# size resolves) - restores the original "fill all leftover space" sizing.
+$script:PreviewRowStarLength = $PreviewRowDef.Height
+
+# Sizes PreviewRowDef to hug exactly header-height + $BoxHeight, so
+# PreviewArea's own "*" row ends up exactly $BoxHeight tall - i.e. no
+# leftover space around the centered PreviewHost inside it. Falls back to
+# the original star sizing if the header's height isn't known yet (e.g.
+# called before first layout pass).
+function Set-PreviewRowHeightForBox {
+    param([double]$BoxHeight)
+
+    if (-not $PreviewRowDef -or -not $HeaderGrid -or $HeaderGrid.RowDefinitions.Count -eq 0) { return }
+
+    $headerH = $HeaderGrid.RowDefinitions[0].ActualHeight
+    if ($headerH -le 0) { return }
+
+    $PreviewRowDef.Height = New-Object System.Windows.GridLength(($headerH + $BoxHeight), [System.Windows.GridUnitType]::Pixel)
+}
+
+# Puts PreviewRowDef back to its original star sizing - used for images
+# (which should keep filling all available space, unaffected by this fix)
+# and for videos before their native/forced size is known.
+function Reset-PreviewRowHeight {
+    if (-not $PreviewRowDef) { return }
+    $PreviewRowDef.Height = $script:PreviewRowStarLength
+}
 $PvBarTop     = Get-El 'PvBarTop'
 $PvBarBottom  = Get-El 'PvBarBottom'
 $PvBarLeft    = Get-El 'PvBarLeft'
@@ -530,6 +562,12 @@ function Apply-PreviewVideoAspectRatio {
     $VidPreview.Width   = [double]::NaN
     $VidPreview.Height  = [double]::NaN
     $VidPreview.Stretch = [System.Windows.Media.Stretch]::Uniform
+
+    # Shrink the outer row to hug this exact box height (see PreviewRowDef
+    # in MainWindow.xaml) - otherwise PreviewArea keeps claiming whatever
+    # leftover vertical space the window has, centering this box inside a
+    # taller area than it needs and leaving blank space above/below it.
+    Set-PreviewRowHeightForBox -BoxHeight $targetH
 }
 
 # Puts PreviewHost back to filling the full PreviewArea (its normal
@@ -539,6 +577,11 @@ function Reset-PreviewHostSize {
     $PreviewHost.VerticalAlignment = 'Stretch'
     $PreviewHost.Width  = [double]::NaN
     $PreviewHost.Height = [double]::NaN
+
+    # Images (and videos before their size is known) should keep filling
+    # all available space, same as before this fix - only a video with a
+    # known box height gets the hugged/exact row sizing above.
+    Reset-PreviewRowHeight
 }
 
 # Mirrors Apply-PreviewVideoAspectRatio above, but sizes FsMediaHost against

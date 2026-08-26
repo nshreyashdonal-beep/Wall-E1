@@ -134,29 +134,223 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- Dark-theme TextBox - previously only had colors set inline
+             (on TxtRootPath), with no custom template, so it still used the
+             default Windows chrome (bevel edges, default blue selection/
+             caret) underneath. No x:Key - applies to every TextBox in this
+             window automatically. Local Background/Foreground/BorderBrush
+             values set directly on an individual TextBox (e.g. TxtRootPath)
+             still flow through via TemplateBinding below, so this doesn't
+             fight with those - it just adds the rounded dark chrome, amber
+             hover/focus border, and amber caret/selection around them. -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="TxtBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <!-- PART_ContentHost is a required name WPF looks
+                                 for in any custom TextBox template - without
+                                 it, the text simply never renders. -->
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="TxtBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="TxtBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Dark-theme CheckBox - previously only had Foreground set (the
+             label text), so the actual check square itself still rendered
+             as the default plain white/grey Windows box. No x:Key -
+             applies to every CheckBox in this window (ChkHotkeys,
+             ChkVideoAudio, ChkShuffle) automatically. -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="CheckBorder" Width="16" Height="16" CornerRadius="3"
+                                    Background="#1E1E24" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1"
+                                    VerticalAlignment="Center">
+                                <Path x:Name="CheckMark" Data="M 3,8 L 7,12 L 13,4" Stroke="#1A1400" StrokeThickness="2"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="CheckBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ComboBoxItem chrome for the dropdown list below - dark panel
+             background, amber highlight on hover, amber fill + dark text
+             on the selected item. No x:Key - applies to every
+             ComboBoxItem generated inside any ComboBox's dropdown. -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder" Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource BorderBrush2}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="#1A1400"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Dark-theme ComboBox - previously had no Style at all, so
+             CmbPreviewStretch, CmbStyle, CmbVideoAspect, and CmbInterval
+             all rendered as the plain default Windows combo (white
+             dropdown button, black-on-white popup list), the most visually
+             jarring plain elements against this dark theme. No x:Key -
+             applies to all four automatically. -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#1E1E24"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush2}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleBtn"
+                                          IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          ClickMode="Press" Focusable="False">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="ToggleBorder" Background="{Binding Background, RelativeSource={RelativeSource TemplatedParent}}"
+                                                BorderBrush="{Binding BorderBrush, RelativeSource={RelativeSource TemplatedParent}}"
+                                                BorderThickness="{Binding BorderThickness, RelativeSource={RelativeSource TemplatedParent}}"
+                                                CornerRadius="6"/>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ToggleBorder" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+
+                            <ContentPresenter x:Name="ContentSite"
+                                              Margin="10,6,28,6"
+                                              VerticalAlignment="Center" HorizontalAlignment="Left"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"/>
+
+                            <TextBlock Text="▾" Foreground="{StaticResource AccentBrush}" FontSize="10"
+                                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       Margin="0,0,10,0" IsHitTestVisible="False"/>
+
+                            <Popup x:Name="PART_Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource AccentBrush}"
+                                        BorderThickness="1" CornerRadius="6" Margin="0,2,0,0"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="240">
+                                    <ScrollViewer>
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
-    <Grid Margin="16">
+    <Grid x:Name="RootGrid" Margin="16">
         <Grid.RowDefinitions>
-            <!-- Both rows are star-sized (not Auto) so extra space is shared
-                 proportionally, AND so the settings ScrollViewer below is
-                 always given a *finite* height to fit into. A ScrollViewer
-                 placed in an Auto row gets asked to measure at infinite
-                 height, so it just grows to fit its content and its
-                 scrollbar never engages - that's why a short window used to
-                 clip the bottom controls instead of scrolling to them.
-                 With a real MinHeight + star weight here, the row (and the
-                 ScrollViewer inside it) gets a concrete height budget, so
-                 it scrolls once content exceeds it. -->
-            <RowDefinition Height="3*" MinHeight="260"/>
+            <!-- Row 0's Height starts at 3* (fills leftover space) but is
+                 switched to an exact PIXEL height in code-behind
+                 (Apply-PreviewVideoAspectRatio / Reset-PreviewHostSize)
+                 whenever a video with a known aspect ratio is showing -
+                 sized to header-height + the video box's own computed
+                 height, so PreviewArea's "*" row below gets EXACTLY the
+                 video box's height with nothing left over. Previously this
+                 row always claimed all leftover vertical space regardless
+                 of the (width-driven, and therefore often much shorter)
+                 video box height, which centered a short video box inside
+                 a much taller row - clean when the window was wide enough
+                 for the box to fill the row, but leaving big blank gaps
+                 above/below at the app's default tall/narrow startup size.
+                 Reverts to 3* for images (which still want to fill all
+                 available space, unaffected by this) and before a video's
+                 native size is known.
+
+                 The settings ScrollViewer below still needs a *finite*
+                 height to fit into regardless of which mode Row 0 is in -
+                 a ScrollViewer placed in an Auto row gets asked to measure
+                 at infinite height, so it just grows to fit its content
+                 and its scrollbar never engages. Row 1 stays star-sized
+                 (now the only "*" row most of the time, so it claims
+                 whatever Row 0 didn't use) with its own MinHeight floor,
+                 so that finite-height guarantee holds either way. -->
+            <RowDefinition x:Name="PreviewRowDef" Height="3*" MinHeight="260"/>
             <RowDefinition Height="2*" MinHeight="230"/>
         </Grid.RowDefinitions>
 
-        <!-- Header + Preview: this row is star-sized, so it grows to fill
-             whatever extra space the window has - maximizing the app now
-             makes the picture itself fill the screen, instead of staying
-             pinned at a small fixed size. -->
-        <Grid Grid.Row="0">
+        <!-- Header + Preview: this row's height is managed in code-behind
+             (see PreviewRowDef above) so the video box is never centered
+             inside more vertical space than it actually needs. -->
+        <Grid x:Name="HeaderGrid" Grid.Row="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
