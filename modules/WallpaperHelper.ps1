@@ -18,6 +18,54 @@ if (-not ([System.Management.Automation.PSTypeName]'Win32.Wallpaper').Type) {
 "@
 }
 
+# Separate type for psapi's EmptyWorkingSet - used by Invoke-MemoryTrim below,
+# not related to wallpaper-setting itself but lives here since this file is
+# already the app's dumping ground for small Win32 interop helpers.
+if (-not ([System.Management.Automation.PSTypeName]'Win32.MemTrim').Type) {
+    Add-Type -Namespace Win32 -Name MemTrim -MemberDefinition @"
+        [DllImport("psapi.dll", SetLastError = true)]
+        public static extern bool EmptyWorkingSet(IntPtr hProcess);
+"@
+}
+
+function Invoke-MemoryTrim {
+    <#
+    .SYNOPSIS
+        Forces a full GC pass and then tells Windows to trim the process's
+        working set, so Task Manager's "Memory" column actually reflects
+        memory that was just freed.
+
+    .NOTES
+        Two separate problems, both needed:
+        1) MediaElement / Media Foundation objects (video preview, video
+           wallpaper's hidden window+players) release their real unmanaged
+           memory on FINALIZATION, not the instant Source is set to $null
+           or the owning Window is Close()'d. Until a GC actually runs,
+           they're garbage but not yet freed. Hence Collect() -> wait for
+           finalizers -> Collect() again to catch anything the finalizers
+           themselves dropped.
+        2) Even after that memory is genuinely freed on the managed side,
+           .NET does not hand the underlying pages back to Windows on its
+           own - it keeps them reserved in case of future allocations. That
+           reserved-but-unused memory is exactly what Task Manager's
+           "Memory"/working-set column counts, so the number stays flat
+           even though the app-side memory is not in use. EmptyWorkingSet
+           is the explicit "give it back" call.
+
+        Only call this around real transitions (e.g. right after a video
+        wallpaper is torn down) - not on every navigation step. It has a
+        real (if small, a handful of ms) synchronous cost, and calling it
+        constantly defeats its own purpose by forcing pages to be
+        re-faulted back in immediately after being trimmed.
+    #>
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+    [System.GC]::Collect()
+    try {
+        [Win32.MemTrim]::EmptyWorkingSet([System.Diagnostics.Process]::GetCurrentProcess().Handle) | Out-Null
+    } catch { }
+}
+
 # SPI_SETDESKWALLPAPER = 0x0014 (20)
 $script:SPI_SETDESKWALLPAPER = 0x0014
 $script:SPIF_UPDATEINIFILE   = 0x01

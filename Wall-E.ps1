@@ -247,11 +247,22 @@ function Sync-FullScreenVideo {
 
     # A third, independent, always-muted playback of the same file (the
     # main window has its own copy in VidPreview, and the desktop
-    # wallpaper has another via Show-VideoWallpaper) - reuse VidPreview's
-    # already-resolved Source rather than re-deriving the file path.
+    # wallpaper has another via Show-VideoWallpaper). This used to reuse
+    # VidPreview's already-resolved Source rather than re-deriving the file
+    # path - but VidPreview's in-app preview is now click-gated (see
+    # Update-PreviewDisplay) and so is frequently empty/unset. Full screen
+    # keeps its own always-eager playback regardless of that click state,
+    # so it has to resolve the path itself from the current file instead of
+    # depending on the small pane.
+    if ($script:Folders.Count -eq 0 -or $script:CurImages.Count -eq 0) {
+        $script:MedPreviewFS.Visibility = 'Collapsed'
+        $script:PnlVideoUnavailableFS.Visibility = 'Visible'
+        return
+    }
+    $imgFile = $script:CurImages[$script:Config.ImageIndex]
     try {
         $script:MedPreviewFS.Stop()
-        $script:MedPreviewFS.Source = $VidPreview.Source
+        $script:MedPreviewFS.Source = New-Object System.Uri($imgFile.FullName)
         $script:MedPreviewFS.Visibility = 'Visible'
         $script:MedPreviewFS.Play()
     }
@@ -265,6 +276,7 @@ function Sync-FullScreenVideo {
 
 $ImgPreview   = Get-El 'ImgPreview'
 $PnlVideoBadge = Get-El 'PnlVideoBadge'
+$TxtVideoBadgeTitle = Get-El 'TxtVideoBadgeTitle'
 $TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
 $VidPreview   = Get-El 'VidPreview'
 $PreviewHost  = Get-El 'PreviewHost'
@@ -773,28 +785,26 @@ function Update-PreviewDisplay {
     if ($script:CurrentIsVideo) {
         $ImgPreview.Source = $null
         $ImgPreview.Visibility = 'Collapsed'
-        $PnlVideoBadge.Visibility = 'Collapsed'
         Set-PreviewComboMode -Mode 'Video'
 
-        # A second, independent, always-muted playback of the same file -
-        # separate from (and not frame-synced with) the copy actually
-        # playing on the desktop. Restarting it on every navigation step
-        # mirrors how the image preview already reloads its bitmap per step.
-        try {
-            $VidPreview.Stop()
-            $VidPreview.Source = New-Object System.Uri($imgFile.FullName)
-            $VidPreview.Visibility = 'Visible'
-            $VidPreview.Play()
-            Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
-        }
-        catch {
-            # Couldn't open it for in-app preview (codec issue, etc.) - the
-            # desktop copy (Show-VideoWallpaper) is unaffected by this and
-            # may still play fine; just fall back to the badge here.
-            $VidPreview.Visibility = 'Collapsed'
-            $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
-            $PnlVideoBadge.Visibility = 'Visible'
-        }
+        # The in-app preview no longer auto-plays on navigation - decoding/
+        # playing every video you step past was needlessly expensive. Leave
+        # VidPreview empty/stopped and show a filler badge (icon + filename
+        # + click-to-play affordance) instead; actual playback only starts
+        # from PnlVideoBadge's click handler below. This runs on every
+        # navigation step (next/prev/folder, slideshow tick), so the filler
+        # always comes back first regardless of whether the previous item
+        # was clicked - there's no "stay playing" carve-out for Slideshow/
+        # Quick Play. The desktop wallpaper copy (Show-VideoWallpaper) never
+        # reads VidPreview, so it keeps auto-playing exactly as before.
+        $VidPreview.Stop()
+        $VidPreview.Source = $null
+        $VidPreview.Visibility = 'Collapsed'
+        Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+        $TxtVideoBadgeTitle.Text = $imgFile.Name
+        $TxtVideoBadgeSub.Text = "Click to play in-app preview - already playing as your desktop wallpaper"
+        $PnlVideoBadge.Visibility = 'Visible'
+
         Sync-FullScreenImage
         return
     }
@@ -883,7 +893,15 @@ function Apply-CurrentWallpaper {
     # Current item is a still image - make sure any video wallpaper that
     # was previously showing is stopped so it doesn't keep covering the
     # static wallpaper we're about to set underneath it.
-    if (Test-VideoWallpaperActive) { Hide-VideoWallpaper }
+    if (Test-VideoWallpaperActive) {
+        Hide-VideoWallpaper
+        # Hide-VideoWallpaper Close()s the hidden window/players, but that
+        # only makes them garbage - it doesn't force a GC pass, and even a
+        # GC pass wouldn't make Task Manager's number move on its own (see
+        # Invoke-MemoryTrim's notes). Do it here, once, right at the
+        # video->image transition, rather than on every navigation step.
+        Invoke-MemoryTrim
+    }
 
     $wallpaperPath = Convert-ToWallpaperCompatible -Path $imgFile.FullName
     if (-not $wallpaperPath) {
@@ -1374,10 +1392,46 @@ $VidPreview.Add_MediaEnded({
 # Opening the file for in-app preview failed (codec issue, etc.) - this is
 # a separate playback attempt from the desktop copy, so it may well still
 # be playing fine on the desktop even though the preview couldn't open it.
+# Reuses PnlVideoBadge (the same "click to play" filler shown pre-click),
+# just swapped to an explanatory message instead of the filename/affordance.
 $VidPreview.Add_MediaFailed({
     $VidPreview.Visibility = 'Collapsed'
+    $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
     $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
     $PnlVideoBadge.Visibility = 'Visible'
+})
+
+# Gates in-app video playback behind a click, instead of it auto-starting
+# on every navigation step (see Update-PreviewDisplay). Only relevant while
+# PnlVideoBadge is showing the "click to play" filler for the CURRENT item -
+# $script:CurrentIsVideo already guards against stray clicks landing here
+# for an image, and Update-PreviewDisplay re-shows this filler (re-arming
+# the click requirement) on every subsequent navigation step, so there's no
+# way to "pre-click" an item you haven't navigated to yet.
+$PnlVideoBadge.Add_MouseLeftButtonDown({
+    if (-not $script:CurrentIsVideo) { return }
+    if ($script:Folders.Count -eq 0 -or $script:CurImages.Count -eq 0) { return }
+    $imgFile = $script:CurImages[$script:Config.ImageIndex]
+
+    try {
+        $VidPreview.Stop()
+        $VidPreview.Source = New-Object System.Uri($imgFile.FullName)
+        $VidPreview.Visibility = 'Visible'
+        $PnlVideoBadge.Visibility = 'Collapsed'
+        $VidPreview.Play()
+        Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
+    }
+    catch {
+        # Couldn't open it for in-app preview (codec issue, etc.) - the
+        # desktop copy (Show-VideoWallpaper) is unaffected by this and may
+        # still play fine; fall back to the badge's failure message. (The
+        # async case - Play() accepts but the file then fails to actually
+        # open - is instead caught by Add_MediaFailed above.)
+        $VidPreview.Visibility = 'Collapsed'
+        $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
+        $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
+        $PnlVideoBadge.Visibility = 'Visible'
+    }
 })
 
 $BtnFullScreen.Add_Click({ Show-FullScreenPreview })

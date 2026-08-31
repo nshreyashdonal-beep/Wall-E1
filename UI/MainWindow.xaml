@@ -405,20 +405,27 @@
                         <Rectangle x:Name="PvBarLeft"   Fill="Black" Width="0"  HorizontalAlignment="Left"  VerticalAlignment="Stretch"/>
                         <Rectangle x:Name="PvBarRight"  Fill="Black" Width="0"  HorizontalAlignment="Right" VerticalAlignment="Stretch"/>
 
-                        <!-- Fallback only - shown if the in-app video preview
-                             itself fails to open (MediaFailed), so there's
-                             still something informative on screen instead of
-                             a blank panel. Not shown in normal operation. -->
-                        <StackPanel x:Name="PnlVideoBadge" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Border Width="64" Height="64" CornerRadius="32" Background="#1E1E24" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5">
-                                <Border.Effect>
-                                    <DropShadowEffect Color="#D8A94A" BlurRadius="16" ShadowDepth="0" Opacity="0.5"/>
-                                </Border.Effect>
-                                <TextBlock Text="▶" FontSize="24" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="4,0,0,0"/>
-                            </Border>
-                            <TextBlock Text="PLAYING AS VIDEO WALLPAPER" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,12,0,0"/>
-                            <TextBlock x:Name="TxtVideoBadgeSub" Text="Check your desktop - couldn't load an in-app preview for this file" FontSize="10" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
-                        </StackPanel>
+                        <!-- Shown for every video item until clicked (the
+                             in-app preview no longer auto-plays - see
+                             Update-PreviewDisplay) AND, reusing the same
+                             elements, as a fallback if playback is then
+                             attempted and fails (MediaFailed). Background is
+                             Transparent (not the XAML default of null) so the
+                             whole area - not just the icon/text - is
+                             clickable; see PnlVideoBadge's Add_MouseLeftButtonDown
+                             handler in Wall-E.ps1. -->
+                        <Border x:Name="PnlVideoBadge" Visibility="Collapsed" Background="Transparent" Cursor="Hand">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <Border Width="64" Height="64" CornerRadius="32" Background="#1E1E24" BorderBrush="{StaticResource AccentBrush}" BorderThickness="1.5">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="#D8A94A" BlurRadius="16" ShadowDepth="0" Opacity="0.5"/>
+                                    </Border.Effect>
+                                    <TextBlock Text="▶" FontSize="24" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                </Border>
+                                <TextBlock x:Name="TxtVideoBadgeTitle" Text="PLAYING AS VIDEO WALLPAPER" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,12,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
+                                <TextBlock x:Name="TxtVideoBadgeSub" Text="Check your desktop - couldn't load an in-app preview for this file" FontSize="10" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Center" Margin="0,3,0,0" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="240"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Border>
 
