@@ -443,6 +443,18 @@
                     </ComboBox>
                     <Button x:Name="BtnFullScreen" Content="⛶" Style="{StaticResource NavButton}" Width="36" Padding="0" ToolTip="Full screen preview"/>
                 </StackPanel>
+
+                <!-- Stop/close button for the in-app video preview. Collapsed
+                     by default (matches PnlVideoBadge's "click to play" state)
+                     and only shown once VidPreview is actually playing - see
+                     PnlVideoBadge's click handler and BtnStopPreview's own
+                     click handler in Wall-E.ps1, both of which keep this in
+                     sync with VidPreview.Visibility. Ends the in-app preview
+                     (and its MediaElement/Media Foundation resources - see
+                     Invoke-MemoryTrim) without navigating away from the item. -->
+                <Button x:Name="BtnStopPreview" Content="✕" Visibility="Collapsed" Style="{StaticResource NavButton}"
+                        Width="30" Height="30" Padding="0" FontSize="13" HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="10,10,0,0" ToolTip="Stop in-app preview"/>
             </Grid>
         </Grid>
 

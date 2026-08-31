@@ -279,6 +279,7 @@ $PnlVideoBadge = Get-El 'PnlVideoBadge'
 $TxtVideoBadgeTitle = Get-El 'TxtVideoBadgeTitle'
 $TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
 $VidPreview   = Get-El 'VidPreview'
+$BtnStopPreview = Get-El 'BtnStopPreview'
 $PreviewHost  = Get-El 'PreviewHost'
 $PreviewArea  = Get-El 'PreviewArea'
 $RootGrid     = Get-El 'RootGrid'
@@ -800,6 +801,7 @@ function Update-PreviewDisplay {
         $VidPreview.Stop()
         $VidPreview.Source = $null
         $VidPreview.Visibility = 'Collapsed'
+        $BtnStopPreview.Visibility = 'Collapsed'
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
         $TxtVideoBadgeTitle.Text = $imgFile.Name
         $TxtVideoBadgeSub.Text = "Click to play in-app preview - already playing as your desktop wallpaper"
@@ -811,6 +813,7 @@ function Update-PreviewDisplay {
 
     $PnlVideoBadge.Visibility = 'Collapsed'
     $VidPreview.Visibility = 'Collapsed'
+    $BtnStopPreview.Visibility = 'Collapsed'
     $VidPreview.Stop()
     $VidPreview.Source = $null
     Reset-PreviewHostSize
@@ -1396,6 +1399,7 @@ $VidPreview.Add_MediaEnded({
 # just swapped to an explanatory message instead of the filename/affordance.
 $VidPreview.Add_MediaFailed({
     $VidPreview.Visibility = 'Collapsed'
+    $BtnStopPreview.Visibility = 'Collapsed'
     $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
     $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
     $PnlVideoBadge.Visibility = 'Visible'
@@ -1419,6 +1423,7 @@ $PnlVideoBadge.Add_MouseLeftButtonDown({
         $VidPreview.Visibility = 'Visible'
         $PnlVideoBadge.Visibility = 'Collapsed'
         $VidPreview.Play()
+        $BtnStopPreview.Visibility = 'Visible'
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
     }
     catch {
@@ -1428,10 +1433,34 @@ $PnlVideoBadge.Add_MouseLeftButtonDown({
         # async case - Play() accepts but the file then fails to actually
         # open - is instead caught by Add_MediaFailed above.)
         $VidPreview.Visibility = 'Collapsed'
+        $BtnStopPreview.Visibility = 'Collapsed'
         $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
         $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
         $PnlVideoBadge.Visibility = 'Visible'
     }
+})
+
+# Lets you end the in-app preview on demand instead of only ever having it
+# replaced by the next navigation step's filler (see Update-PreviewDisplay).
+# Re-arms the same "click to play" badge PnlVideoBadge already shows before
+# a first click, and - same as the video->image branch of
+# Apply-CurrentWallpaper - trims the working set afterwards, since stopping
+# playback here frees a real MediaElement/Media Foundation resource just
+# like closing the desktop video wallpaper does (see Invoke-MemoryTrim).
+$BtnStopPreview.Add_Click({
+    $VidPreview.Stop()
+    $VidPreview.Source = $null
+    $VidPreview.Visibility = 'Collapsed'
+    $BtnStopPreview.Visibility = 'Collapsed'
+
+    if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
+        $imgFile = $script:CurImages[$script:Config.ImageIndex]
+        $TxtVideoBadgeTitle.Text = $imgFile.Name
+        $TxtVideoBadgeSub.Text = "Click to play in-app preview - already playing as your desktop wallpaper"
+    }
+    $PnlVideoBadge.Visibility = 'Visible'
+
+    Invoke-MemoryTrim
 })
 
 $BtnFullScreen.Add_Click({ Show-FullScreenPreview })
