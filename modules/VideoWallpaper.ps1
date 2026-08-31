@@ -403,23 +403,24 @@ function Show-VideoWallpaper {
 function Hide-VideoWallpaper {
     <#
     .SYNOPSIS
-        Stops and hides the video wallpaper window (a no-op if it isn't
-        currently showing). The static wallpaper set via Set-Wallpaper
-        reappears immediately - nothing else needs to change.
+        Stops the video wallpaper and fully tears down the hidden WPF
+        window/infrastructure (a no-op if it isn't currently showing). The
+        static wallpaper set via Set-Wallpaper reappears immediately -
+        nothing else needs to change.
+
+    .NOTES
+        This used to just Stop()/Hide() the window, which left WPF
+        (PresentationFramework/PresentationCore, etc.) loaded in memory for
+        the rest of the app session even after returning to a static image -
+        RAM stayed elevated (~250MB+) forever once a single video had been
+        shown. Now delegates to Uninitialize-VideoWallpaperInfrastructure to
+        actually close the window and release that memory. The next
+        Show-VideoWallpaper call transparently rebuilds everything on
+        demand via its existing lazy-init logic, at the cost of a small
+        one-time re-init delay each time video mode is re-entered.
     #>
     if (-not $script:VideoWallpaperWindow) { return }
-    $script:VideoWallpaperOnEnded = $null
-    $script:VideoWallpaperCurrentPath = $null
-    foreach ($p in $script:VideoWallpaperPlayers) {
-        # Cancel any in-flight crossfade animation so it doesn't fire its
-        # Completed callback (touching a player mid-teardown) later.
-        try { $p.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null) } catch { }
-        try { $p.Stop() } catch { }
-        try { $p.Source = $null } catch { }
-        $p.Opacity = 0
-    }
-    $script:VideoWallpaperActive = 0
-    $script:VideoWallpaperWindow.Hide()
+    Uninitialize-VideoWallpaperInfrastructure
 }
 
 function Test-VideoWallpaperActive {
@@ -450,15 +451,19 @@ function Restart-VideoWallpaper {
 function Uninitialize-VideoWallpaperInfrastructure {
     <#
     .SYNOPSIS
-        Call on app shutdown - stops playback and closes the hidden window
-        so nothing is left running (or holding the video file open) after
-        Wall-E exits.
+        Stops playback and closes the hidden window so nothing is left
+        running (or holding the video file open, or holding WPF loaded in
+        memory). Called both on app shutdown AND mid-session from
+        Hide-VideoWallpaper (switching back to a static image) - Show-
+        VideoWallpaper's existing lazy-init logic transparently rebuilds
+        everything the next time a video is shown.
     #>
     foreach ($p in $script:VideoWallpaperPlayers) {
         try { $p.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null) } catch { }
         try { $p.Stop() } catch { }
     }
     if ($script:VideoWallpaperWindow) { try { $script:VideoWallpaperWindow.Close() } catch { } }
+    $script:VideoWallpaperOnEnded    = $null
     $script:VideoWallpaperCurrentPath = $null
     $script:VideoWallpaperWindow  = $null
     $script:VideoWallpaperPlayers = @()
