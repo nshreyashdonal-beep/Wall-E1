@@ -73,6 +73,7 @@ if ([string]::IsNullOrWhiteSpace($root)) {
 . (Join-Path $root 'modules\SnapshotLibrary.ps1')
 . (Join-Path $root 'modules\GlobalHotkey.ps1')
 . (Join-Path $root 'modules\VideoWallpaper.ps1')
+. (Join-Path $root 'modules\VideoMarkers.ps1')     # depends on $script:PlayerConfigDir - must load after SnapshotLibrary.ps1
 
 Initialize-Wallpaper | Out-Null
 
@@ -279,7 +280,28 @@ $PnlVideoBadge = Get-El 'PnlVideoBadge'
 $TxtVideoBadgeTitle = Get-El 'TxtVideoBadgeTitle'
 $TxtVideoBadgeSub = Get-El 'TxtVideoBadgeSub'
 $VidPreview   = Get-El 'VidPreview'
+$PreviewControlsPanel = Get-El 'PreviewControlsPanel'
+$BtnPlayPause = Get-El 'BtnPlayPause'
 $BtnStopPreview = Get-El 'BtnStopPreview'
+$MarkerBar    = Get-El 'MarkerBar'
+$MarkerTrack  = Get-El 'MarkerTrack'
+$MarkerRangeFill = Get-El 'MarkerRangeFill'
+$ThumbMarkStart  = Get-El 'ThumbMarkStart'
+$ThumbMarkEnd    = Get-El 'ThumbMarkEnd'
+$TxtMarkRange    = Get-El 'TxtMarkRange'
+$BtnClearMarker  = Get-El 'BtnClearMarker'
+$BtnPreviewMarker = Get-El 'BtnPreviewMarker'
+$PnlMarkerStartRow = Get-El 'PnlMarkerStartRow'
+$TxtMarkStartInput = Get-El 'TxtMarkStartInput'
+$PnlMarkerEndRow = Get-El 'PnlMarkerEndRow'
+$TxtMarkEndInput = Get-El 'TxtMarkEndInput'
+$PnlMarkerEditRow = Get-El 'PnlMarkerEditRow'
+$TxtMarkerSelectedLabel = Get-El 'TxtMarkerSelectedLabel'
+$BtnSetSelectedHere = Get-El 'BtnSetSelectedHere'
+$BtnSelMinus1  = Get-El 'BtnSelMinus1'
+$BtnSelMinus01 = Get-El 'BtnSelMinus01'
+$BtnSelPlus01  = Get-El 'BtnSelPlus01'
+$BtnSelPlus1   = Get-El 'BtnSelPlus1'
 $PreviewHost  = Get-El 'PreviewHost'
 $PreviewArea  = Get-El 'PreviewArea'
 $RootGrid     = Get-El 'RootGrid'
@@ -334,6 +356,7 @@ $BtnRefresh   = Get-El 'BtnRefresh'
 $BtnPlay      = Get-El 'BtnPlay'
 $CmbInterval  = Get-El 'CmbInterval'
 $ChkShuffle   = Get-El 'ChkShuffle'
+$BtnLoopFolder = Get-El 'BtnLoopFolder'
 $BtnQuickPlay = Get-El 'BtnQuickPlay'
 $RbSpeedLow   = Get-El 'RbSpeedLow'
 $RbSpeedMedium = Get-El 'RbSpeedMedium'
@@ -390,6 +413,13 @@ $script:PlayTimer.Interval = [TimeSpan]::FromMilliseconds(900)
 # fixed Low/Medium/High pace, independent of the Slideshow interval combo.
 $script:QuickPlayTimer = New-Object System.Windows.Threading.DispatcherTimer
 $script:QuickPlayTimer.Interval = [TimeSpan]::FromMilliseconds($script:QuickPlaySpeeds.Medium)
+
+# Drives the in-app preview's own trim-marker enforcement (loop back to
+# the marked start once playback reaches the marked end - MediaElement has
+# no "reached position X" event of its own) and its playhead indicator.
+# See Show-MarkerBar/Hide-MarkerBar and the Tick handler further down.
+$script:PreviewMarkerTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:PreviewMarkerTimer.Interval = [TimeSpan]::FromMilliseconds(200)
 
 $script:WallpaperApplyTimer.Add_Tick({
     $script:WallpaperApplyTimer.Stop()
@@ -801,7 +831,8 @@ function Update-PreviewDisplay {
         $VidPreview.Stop()
         $VidPreview.Source = $null
         $VidPreview.Visibility = 'Collapsed'
-        $BtnStopPreview.Visibility = 'Collapsed'
+        $PreviewControlsPanel.Visibility = 'Collapsed'
+        Show-MarkerBarInactive
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
         $TxtVideoBadgeTitle.Text = $imgFile.Name
         $TxtVideoBadgeSub.Text = "Click to play in-app preview - already playing as your desktop wallpaper"
@@ -813,7 +844,8 @@ function Update-PreviewDisplay {
 
     $PnlVideoBadge.Visibility = 'Collapsed'
     $VidPreview.Visibility = 'Collapsed'
-    $BtnStopPreview.Visibility = 'Collapsed'
+    $PreviewControlsPanel.Visibility = 'Collapsed'
+    Hide-MarkerBar
     $VidPreview.Stop()
     $VidPreview.Source = $null
     Reset-PreviewHostSize
@@ -852,13 +884,22 @@ function Apply-CurrentWallpaper {
         # aspect-ratio combo instead (like VLC's Aspect Ratio menu).
         $aspectLabel = if ($CmbVideoAspect.SelectedItem) { $CmbVideoAspect.SelectedItem.Content } else { 'Default' }
         $aspectRatio = Get-SelectedVideoAspectRatio
+        # A saved trim marker (see VideoMarkers.ps1) makes this video play
+        # only its marked section - Show-VideoWallpaper starts there and
+        # treats reaching the end point exactly like true EOF (loop the
+        # section when Slideshow is off, hand off to "next" when it's on -
+        # same OnEnded below either way). No marker for this file -> play
+        # in full, same as before this feature existed.
+        $marker = Get-VideoMarker -Path $imgFile.FullName
+        $markerStart = if ($marker) { $marker.Start } else { 0 }
+        $markerEnd   = if ($marker) { $marker.End } else { 0 }
         # OnEnded fires every time the video reaches its end. If Slideshow
         # is running, jump to the next item - same "what's next" logic the
         # Slideshow timer uses (respects the Shuffle checkbox). If
         # Slideshow is OFF, this video is effectively the "permanent"
         # wallpaper (the same way a static image just stays put when
         # Slideshow is off) - so just loop it instead of advancing.
-        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -AspectRatio $aspectRatio -OnEnded {
+        $ok = Show-VideoWallpaper -Path $imgFile.FullName -Muted $muted -AspectRatio $aspectRatio -MarkerStart $markerStart -MarkerEnd $markerEnd -OnEnded {
             Invoke-OnUiThread {
                 if (-not $script:IsPlaying) {
                     Restart-VideoWallpaper
@@ -943,6 +984,21 @@ function Show-CurrentImage {
 # ---------------------------------------------------------------------------
 # Navigation
 # ---------------------------------------------------------------------------
+function Update-LoopFolderButtonVisual {
+    <#
+    .SYNOPSIS
+        Styles BtnLoopFolder to reflect $script:Config.LoopFolderEnabled -
+        PrimaryButton (accent/yellow, same color as TxtFolderName) when on,
+        plain NavButton when off. Call after any change to the setting,
+        including at startup once the saved config is loaded.
+    #>
+    $BtnLoopFolder.Style = if ($script:Config.LoopFolderEnabled) {
+        $window.FindResource('PrimaryButton')
+    } else {
+        $window.FindResource('NavButton')
+    }
+}
+
 function Go-NextImage {
     param(
         # Skips the ~180ms debounce and applies the wallpaper right away.
@@ -956,6 +1012,14 @@ function Go-NextImage {
     if ($script:CurImages.Count -eq 0) { return }
 
     if ($script:Config.ImageIndex -ge $script:CurImages.Count - 1) {
+        if ($script:Config.LoopFolderEnabled) {
+            # Loop Folder is on - wrap back to this SAME folder's first
+            # image instead of rolling into the next folder.
+            $script:Config.ImageIndex = 0
+            Update-PreviewDisplay
+            if ($Immediate) { Apply-CurrentWallpaper } else { Request-WallpaperApply }
+            return
+        }
         # Last image in this folder - roll into the next folder's first image.
         Go-NextFolder -Immediate:$Immediate
         return
@@ -970,6 +1034,14 @@ function Go-PrevImage {
     if ($script:CurImages.Count -eq 0) { return }
 
     if ($script:Config.ImageIndex -le 0) {
+        if ($script:Config.LoopFolderEnabled) {
+            # Loop Folder is on - wrap back to this SAME folder's last
+            # image instead of rolling into the previous folder.
+            $script:Config.ImageIndex = $script:CurImages.Count - 1
+            Update-PreviewDisplay
+            Request-WallpaperApply
+            return
+        }
         # First image in this folder - roll into the previous folder's last image.
         Go-PrevFolder -LandOnLast
         return
@@ -1013,6 +1085,9 @@ function Go-RandomImage {
     .SYNOPSIS
         Jumps to a random image, possibly in a different folder - used when
         "Shuffle the picture order" is enabled during slideshow playback.
+        When Loop Folder is also on, stays within the CURRENT folder -
+        only the image index is randomized, same as Shuffle's usual
+        "avoid repeating the same one twice in a row" behavior.
     #>
     param(
         # See Go-NextImage's -Immediate for why the video-ended path needs this.
@@ -1023,7 +1098,11 @@ function Go-RandomImage {
     $prevFolderIndex = $script:Config.FolderIndex
     $prevImageIndex  = $script:Config.ImageIndex
 
-    $newFolderIndex = Get-Random -Minimum 0 -Maximum $script:Folders.Count
+    if ($script:Config.LoopFolderEnabled) {
+        $newFolderIndex = $prevFolderIndex
+    } else {
+        $newFolderIndex = Get-Random -Minimum 0 -Maximum $script:Folders.Count
+    }
     $script:Config.FolderIndex = $newFolderIndex
     Load-CurrentFolderImages
 
@@ -1235,6 +1314,20 @@ foreach ($rb in @($RbSpeedLow, $RbSpeedMedium, $RbSpeedHigh)) {
 $window.Add_PreviewKeyDown({
     param($sender, $e)
 
+    # Let normal typing/editing happen in any focused text box - e.g. the
+    # trim marker's numeric time entry, or the library folder path.
+    # Without this, Left/Right/S/P/A below hijack keystrokes meant for the
+    # box (image navigation instead of moving the cursor, "A" never
+    # actually being typed, etc.) since PreviewKeyDown tunnels down from
+    # the Window BEFORE the box's own KeyDown/TextInput ever sees it -
+    # marking it Handled here stops it from reaching the box at all.
+    # Checked two ways since OriginalSource can occasionally point at an
+    # internal template part rather than the TextBox itself.
+    if ($e.OriginalSource -is [System.Windows.Controls.TextBox] -or
+        [System.Windows.Input.Keyboard]::FocusedElement -is [System.Windows.Controls.TextBox]) {
+        return
+    }
+
     # Exception: if a ComboBox's dropdown is actually open, let Up/Down
     # behave normally (move the highlighted item) instead of hijacking it
     # for image navigation - otherwise the dropdown becomes unusable.
@@ -1273,6 +1366,31 @@ $window.Add_PreviewKeyDown({
             Cycle-VideoAspectRatio
             $e.Handled = $true
         }
+    }
+})
+
+# Whenever a text box in the app gains focus, temporarily release the
+# global bare-key hotkey group (Left/Right/Up/Down/S/P/A - registered
+# with NO modifier, see GlobalHotkey.ps1) so those keys behave normally
+# while typing/editing. This is a different problem from the
+# PreviewKeyDown guard above: RegisterHotKey intercepts these keys at the
+# OS level, system-wide, BEFORE they ever reach WPF's own input/routing
+# system at all - so if "Hotkeys enabled (global)" is checked, no
+# WPF-side guard can help; the only fix is releasing the OS-level
+# registration itself while a box has focus, then restoring it once
+# focus leaves (only if the checkbox is still checked - the user may
+# have unchecked it while a box had focus).
+$window.Add_GotKeyboardFocus({
+    param($sender, $e)
+    if ($e.NewFocus -is [System.Windows.Controls.TextBox] -and $ChkHotkeys.IsChecked) {
+        Unregister-GlobalArrowHotkeys
+    }
+})
+$window.Add_LostKeyboardFocus({
+    param($sender, $e)
+    if ($e.OldFocus -is [System.Windows.Controls.TextBox] -and $ChkHotkeys.IsChecked -and
+        -not ($e.NewFocus -is [System.Windows.Controls.TextBox])) {
+        Enable-Hotkeys
     }
 })
 
@@ -1373,22 +1491,376 @@ $PreviewArea.Add_SizeChanged({
     }
 })
 
+# ---------------------------------------------------------------------------
+# Video trim markers (drag-handle timeline under the in-app preview)
+# ---------------------------------------------------------------------------
+# Lets a video play only a marked in/out section instead of its full
+# length - persisted per-file via modules/VideoMarkers.ps1. State below
+# tracks only the CURRENTLY LOADED video in VidPreview; it's reset every
+# time Show-MarkerBar/Hide-MarkerBar run (i.e. on every navigation step -
+# see Update-PreviewDisplay).
+$script:MarkerPath            = $null   # full path MarkerBar is currently showing
+$script:MarkerDurationSeconds = 0
+$script:MarkerStartSeconds    = 0
+$script:MarkerEndSeconds      = 0
+$script:MarkerHasTrim         = $false  # $false = no saved marker - i.e. "full video"
+$script:MarkerHandleWidth     = 14
+$script:MarkerDraggingStart   = $false  # true while ThumbMarkStart is mid-drag
+$script:MarkerDraggingEnd     = $false  # true while ThumbMarkEnd is mid-drag
+
+# Which handle the shared "Set Here"/nudge controls (BtnSetSelectedHere,
+# BtnSelMinus1/etc.) currently act on - 'Start' or 'End'. Changes the
+# moment either handle is clicked or dragged (see each Thumb's
+# DragStarted) - see Update-MarkerSelectionVisual for how this reflects
+# in the UI (handle color, the "Editing: START/END" label).
+$script:MarkerSelectedSide = 'Start'
+
+# The user's own explicit play/pause choice for the in-app preview (see
+# BtnPlayPause). Separate from the temporary Pause() calls the marker
+# handles make while scrubbing - those don't touch this, and check it on
+# release so a drag never overrides a preview you'd deliberately paused.
+$script:VidPreviewPaused = $false
+
+function Format-MarkerTime {
+    param([double]$Seconds)
+    $ts = [TimeSpan]::FromSeconds([Math]::Max(0, $Seconds))
+    '{0}:{1:D2}' -f [int]$ts.TotalMinutes, $ts.Seconds
+}
+
+function Parse-MarkerTime {
+    <#
+    .SYNOPSIS
+        Inverse of Format-MarkerTime, for the numeric entry boxes - accepts
+        "m:ss" (e.g. "1:32"), "ss" / "ss.s" (bare seconds), returns $null
+        for anything that doesn't parse so the caller can leave the field
+        untouched rather than accepting garbage.
+    #>
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
+    $t = $Text.Trim()
+    if ($t -match '^(\d+):(\d{1,2}(\.\d+)?)$') {
+        return ([double]$Matches[1] * 60) + [double]$Matches[2]
+    }
+    if ($t -match '^\d+(\.\d+)?$') {
+        return [double]$t
+    }
+    return $null
+}
+
+function Get-SnappedMarkerTime {
+    <#
+    .SYNOPSIS
+        Light "magnetic" snapping for drag-positioned marker times - snaps
+        to the very start/end of the video when dragged close to it, and
+        to the nearest whole second otherwise, so you can land on a clean
+        cut point without needing pixel-perfect mouse control. Both
+        thresholds are in SECONDS (not pixels), so they behave the same
+        regardless of how wide the track happens to be on screen.
+    #>
+    param([double]$Seconds, [double]$Duration)
+    $edgeThreshold  = 0.35
+    $wholeThreshold = 0.15
+    if ($Seconds -le $edgeThreshold) { return 0 }
+    if (($Duration - $Seconds) -le $edgeThreshold) { return $Duration }
+    $nearestWhole = [Math]::Round($Seconds)
+    if ([Math]::Abs($Seconds - $nearestWhole) -le $wholeThreshold) { return [double]$nearestWhole }
+    return $Seconds
+}
+
+function Get-MarkerTrackUsableWidth {
+    # The draggable range for a handle's CENTER is the track's width minus
+    # one handle width (so a handle's own bounding box never runs past
+    # either edge of the track) - standard range-slider math. Falls back to
+    # the bar's last known width until the first layout pass actually
+    # measures MarkerTrack (ActualWidth is 0 before that).
+    $w = $MarkerTrack.ActualWidth - $script:MarkerHandleWidth
+    if ($w -lt 1) { return 1 }
+    return $w
+}
+
+function Update-MarkerHandlePositions {
+    <#
+    .SYNOPSIS
+        Repositions ThumbMarkStart/ThumbMarkEnd/MarkerRangeFill (and the
+        range label + numeric entry boxes) from the current
+        $script:MarkerStartSeconds/EndSeconds/DurationSeconds. Call after a
+        drag, a nudge/"Set Here"/typed value, a fresh video load, Reset, or
+        a track resize - this is the single place that keeps every piece
+        of the trimmer UI in sync with those three values.
+    #>
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $usable = Get-MarkerTrackUsableWidth
+    $startX = ($script:MarkerStartSeconds / $script:MarkerDurationSeconds) * $usable
+    $endX   = ($script:MarkerEndSeconds   / $script:MarkerDurationSeconds) * $usable
+
+    [System.Windows.Controls.Canvas]::SetLeft($ThumbMarkStart, $startX)
+    [System.Windows.Controls.Canvas]::SetLeft($ThumbMarkEnd, $endX)
+    [System.Windows.Controls.Canvas]::SetLeft($MarkerRangeFill, $startX + ($script:MarkerHandleWidth / 2))
+    $MarkerRangeFill.Width = [Math]::Max(0, $endX - $startX)
+
+    $TxtMarkStartInput.Text = Format-MarkerTime $script:MarkerStartSeconds
+    $TxtMarkEndInput.Text   = Format-MarkerTime $script:MarkerEndSeconds
+
+    $TxtMarkRange.Text = if ($script:MarkerHasTrim) {
+        $selDuration = $script:MarkerEndSeconds - $script:MarkerStartSeconds
+        "Marked: $(Format-MarkerTime $script:MarkerStartSeconds) - $(Format-MarkerTime $script:MarkerEndSeconds) ($(Format-MarkerTime $selDuration) long)"
+    } else {
+        "Full video ($(Format-MarkerTime $script:MarkerDurationSeconds))"
+    }
+    $BtnClearMarker.Visibility = if ($script:MarkerHasTrim) { 'Visible' } else { 'Collapsed' }
+}
+
+function Update-MarkerSelectionVisual {
+    <#
+    .SYNOPSIS
+        Reflects $script:MarkerSelectedSide in the UI: both handles start
+        out accent/yellow; the selected one (the one nudge/Set-Here
+        currently act on) turns red via its Tag (see the TemplateBinding
+        in MainWindow.xaml), the other stays yellow. The "Editing:
+        START/END" label updates to match. Call whenever selection
+        changes (each Thumb's DragStarted) or the marker bar is
+        (re)activated for a new video.
+    #>
+    $accent = $window.FindResource('AccentBrush')
+    $selected = $window.FindResource('MarkerSelectedBrush')
+    if ($script:MarkerSelectedSide -eq 'End') {
+        $ThumbMarkStart.Tag = $accent
+        $ThumbMarkEnd.Tag = $selected
+        $TxtMarkerSelectedLabel.Text = 'Editing: END'
+    } else {
+        $ThumbMarkStart.Tag = $selected
+        $ThumbMarkEnd.Tag = $accent
+        $TxtMarkerSelectedLabel.Text = 'Editing: START'
+    }
+}
+
+function Show-MarkerBar {
+    <#
+    .SYNOPSIS
+        Called once VidPreview has actually opened a video (real duration
+        known - see its MediaOpened handler). Loads any saved marker for
+        this file (or defaults to the full length), positions the handles,
+        seeks playback to the marked start, and switches the bar (already
+        visible - see Show-MarkerBarInactive) from its disabled placeholder
+        state into a fully interactive one.
+    #>
+    if (-not $script:CurrentIsVideo -or $script:Folders.Count -eq 0 -or $script:CurImages.Count -eq 0) { return }
+    if (-not $VidPreview.NaturalDuration.HasTimeSpan) { return }
+
+    $imgFile = $script:CurImages[$script:Config.ImageIndex]
+    $script:MarkerPath = $imgFile.FullName
+    $script:MarkerDurationSeconds = $VidPreview.NaturalDuration.TimeSpan.TotalSeconds
+
+    $marker = Get-VideoMarker -Path $script:MarkerPath
+    if ($marker) {
+        $script:MarkerHasTrim = $true
+        $script:MarkerStartSeconds = [Math]::Min($marker.Start, $script:MarkerDurationSeconds)
+        $script:MarkerEndSeconds   = [Math]::Min($marker.End,   $script:MarkerDurationSeconds)
+        if ($script:MarkerStartSeconds -gt 0) {
+            $VidPreview.Position = [TimeSpan]::FromSeconds($script:MarkerStartSeconds)
+        }
+    } else {
+        $script:MarkerHasTrim = $false
+        $script:MarkerStartSeconds = 0
+        $script:MarkerEndSeconds   = $script:MarkerDurationSeconds
+    }
+
+    $ThumbMarkStart.Visibility = 'Visible'
+    $ThumbMarkEnd.Visibility = 'Visible'
+    $MarkerRangeFill.Visibility = 'Visible'
+    $BtnPreviewMarker.Visibility = 'Visible'
+    $PnlMarkerStartRow.Visibility = 'Visible'
+    $PnlMarkerEndRow.Visibility = 'Visible'
+    $PnlMarkerEditRow.Visibility = 'Visible'
+    $MarkerBar.IsEnabled = $true
+    $MarkerBar.Opacity = 1
+
+    $script:MarkerSelectedSide = 'Start'
+    Update-MarkerSelectionVisual
+    Update-MarkerHandlePositions
+    $MarkerBar.Visibility = 'Visible'
+}
+
+function Show-MarkerBarInactive {
+    <#
+    .SYNOPSIS
+        Shows the marker bar for the current video item WITHOUT real
+        interactivity - real duration (needed to accurately position/drag
+        the handles) is only known once VidPreview actually opens the file
+        (see Show-MarkerBar, called from MediaOpened, which turns this
+        same bar interactive). Called for every video item as soon as it
+        becomes current (see Update-PreviewDisplay) and again whenever
+        playback stops/fails, so the bar's layout space and last-known
+        marker are always visible - only the drag handles/Reset button
+        turn on, once you actually press Play.
+    #>
+    if (-not $script:CurrentIsVideo -or $script:Folders.Count -eq 0 -or $script:CurImages.Count -eq 0) {
+        Hide-MarkerBar
+        return
+    }
+
+    $imgFile = $script:CurImages[$script:Config.ImageIndex]
+    $script:MarkerPath = $imgFile.FullName
+    $script:MarkerDurationSeconds = 0
+    $script:MarkerHasTrim = $false
+
+    $marker = Get-VideoMarker -Path $script:MarkerPath
+    $TxtMarkRange.Text = if ($marker) {
+        "Marked: $(Format-MarkerTime $marker.Start) - $(Format-MarkerTime $marker.End) - click play to adjust"
+    } else {
+        "Click play to preview and set markers"
+    }
+
+    $ThumbMarkStart.Visibility = 'Collapsed'
+    $ThumbMarkEnd.Visibility = 'Collapsed'
+    $MarkerRangeFill.Visibility = 'Collapsed'
+    $BtnClearMarker.Visibility = 'Collapsed'
+    $BtnPreviewMarker.Visibility = 'Collapsed'
+    $PnlMarkerStartRow.Visibility = 'Collapsed'
+    $PnlMarkerEndRow.Visibility = 'Collapsed'
+    $PnlMarkerEditRow.Visibility = 'Collapsed'
+    $MarkerBar.IsEnabled = $false
+    $MarkerBar.Opacity = 0.6
+    $MarkerBar.Visibility = 'Visible'
+}
+
+function Hide-MarkerBar {
+    <#
+    .SYNOPSIS
+        Fully hides the bar - only for when the current item ISN'T a video
+        at all (see Update-PreviewDisplay's image branch). Every video-
+        related state change (stop, fail, navigate to another video before
+        pressing Play) uses Show-MarkerBarInactive instead, which keeps the
+        bar visible - see its own notes.
+    #>
+    $MarkerBar.Visibility = 'Collapsed'
+    $script:MarkerPath = $null
+    $script:MarkerDurationSeconds = 0
+}
+
+function Save-CurrentMarker {
+    <#
+    .SYNOPSIS
+        Persists the in-progress drag result via Set-VideoMarker, and - if
+        this file happens to be the one currently playing as the desktop
+        wallpaper too - asks it to re-apply live, picking up the new in/out
+        points without restarting the video from scratch (see the
+        "$alreadyPlayingThis" branch near the top of Show-VideoWallpaper).
+    #>
+    if (-not $script:MarkerPath) { return }
+    Set-VideoMarker -Path $script:MarkerPath -Start $script:MarkerStartSeconds -End $script:MarkerEndSeconds
+    $script:MarkerHasTrim = $true
+    Update-MarkerHandlePositions
+
+    if ($script:VideoWallpaperCurrentPath -eq $script:MarkerPath) {
+        Request-WallpaperApply
+    }
+}
+
+function Sync-PreviewFrameToPosition {
+    <#
+    .SYNOPSIS
+        Seeks VidPreview to a position and makes sure the new frame
+        actually repaints. WPF's MediaElement has a long-standing quirk:
+        while paused, setting Position updates the player internally but
+        does NOT redraw the visible frame - the picture just sits frozen
+        on whatever was showing before. Briefly calling Play() forces a
+        real repaint at the new position; -KeepPaused re-pauses right
+        after (used while a marker handle is still being dragged, so
+        scrubbing always freezes on each new frame rather than resuming
+        playback mid-drag); otherwise it re-pauses only if
+        $script:VidPreviewPaused - the user's own explicit pause - is set,
+        so a drag/nudge/typed value never secretly resumes a preview you
+        paused on purpose, and never leaves one running that shouldn't be.
+
+    .DESCRIPTION
+        Two things this works around, both easy to hit while trimming:
+
+        1. Seeking to the video's EXACT real duration and calling Play()
+           lands right on EOF, which fires a genuine MediaEnded - and that
+           handler jumps playback back to the marked start. Since the end
+           marker's default (unmarked) value IS the real duration, almost
+           any nudge/drag/typed-entry that lands back at "the end" would
+           immediately, invisibly get overridden by that jump - looking
+           exactly like "the end controls don't do anything". Clamping the
+           seek target a hair inside the real duration avoids ever
+           actually reaching true EOF here.
+
+        2. Play() and Pause() both act on MediaElement's underlying
+           pipeline ASYNCHRONOUSLY - calling them back-to-back in the same
+           synchronous line doesn't reliably give the pipeline time to
+           actually decode/render a frame before Pause() cuts it off, so
+           the "force a repaint" trick can silently fail to show anything
+           new. Deferring the Pause() to a Background-priority dispatcher
+           callback instead lets the just-started Play() settle first.
+    #>
+    param([double]$Seconds, [switch]$KeepPaused)
+    $target = [Math]::Max(0, $Seconds)
+    if ($script:MarkerDurationSeconds -gt 0.1) {
+        $target = [Math]::Min($target, $script:MarkerDurationSeconds - 0.05)
+    }
+    $VidPreview.Position = [TimeSpan]::FromSeconds($target)
+    $VidPreview.Play()
+    if ($KeepPaused -or $script:VidPreviewPaused) {
+        $window.Dispatcher.BeginInvoke([System.Windows.Threading.DispatcherPriority]::Background, [action]{ $VidPreview.Pause() }) | Out-Null
+    }
+}
+
+function Nudge-MarkerStart {
+    <#
+    .SYNOPSIS
+        Fine-adjusts the start point by a fixed amount (the +/-1s / +/-0.1s
+        buttons) - same clamp (can't cross the end point, min 1s gap),
+        same live-seek-and-save as dragging the handle itself.
+    #>
+    param([double]$Delta)
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $newStart = $script:MarkerStartSeconds + $Delta
+    $newStart = [Math]::Min($newStart, $script:MarkerEndSeconds - 1)
+    $script:MarkerStartSeconds = [Math]::Max(0, $newStart)
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
+    Save-CurrentMarker
+}
+
+function Nudge-MarkerEnd {
+    <#
+    .SYNOPSIS
+        Fine-adjusts the end point by a fixed amount - mirrors Nudge-MarkerStart.
+    #>
+    param([double]$Delta)
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $newEnd = $script:MarkerEndSeconds + $Delta
+    $newEnd = [Math]::Max($newEnd, $script:MarkerStartSeconds + 1)
+    $script:MarkerEndSeconds = [Math]::Min($script:MarkerDurationSeconds, $newEnd)
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerEndSeconds
+    Save-CurrentMarker
+}
+
 # Fires once the in-app preview has actually opened the file and knows
 # its real dimensions. On "Default" (AspectRatio -le 0) this is what lets
 # the panel snap from "filling the available area" to the video's true
 # native shape - see Apply-PreviewVideoAspectRatio's notes on the brief
-# flash this corrects.
+# flash this corrects. Also the point at which real duration is known, so
+# this is where the marker bar/handles get (re)built - see Show-MarkerBar.
 $VidPreview.Add_MediaOpened({
     if ($script:CurrentIsVideo) {
         Apply-PreviewVideoAspectRatio -AspectRatio $script:LastPreviewAspectRatio
+        Show-MarkerBar
     }
 })
 
 # The in-app preview has no OnEnded concept of its own (it doesn't drive
 # Slideshow/advancing - the desktop copy via Show-VideoWallpaper does) -
-# it just always loops whatever the current video is.
+# it just always loops whatever the current video is. Marked (trimmed)
+# videos loop from the marked start instead of true frame 0 - and
+# normally never reach here at all, since $script:PreviewMarkerTimer's
+# poll already loops them at the marked END before true EOF fires this;
+# this remains as a fallback for the untrimmed/no-marker case (where
+# MarkerEndSeconds is exactly the real duration).
 $VidPreview.Add_MediaEnded({
-    $VidPreview.Position = [TimeSpan]::Zero
+    $VidPreview.Position = [TimeSpan]::FromSeconds($script:MarkerStartSeconds)
     $VidPreview.Play()
 })
 
@@ -1399,13 +1871,245 @@ $VidPreview.Add_MediaEnded({
 # just swapped to an explanatory message instead of the filename/affordance.
 $VidPreview.Add_MediaFailed({
     $VidPreview.Visibility = 'Collapsed'
-    $BtnStopPreview.Visibility = 'Collapsed'
+    $PreviewControlsPanel.Visibility = 'Collapsed'
+    Show-MarkerBarInactive
     $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
     $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
     $PnlVideoBadge.Visibility = 'Visible'
 })
 
-# Gates in-app video playback behind a click, instead of it auto-starting
+# Enforces the marked end point for the in-app preview (MediaElement has
+# no "reached position X" event of its own - see the identical reasoning
+# on VideoWallpaper.ps1's own poll timer). No-ops whenever the bar isn't
+# showing. Skips entirely while a handle is being dragged - otherwise
+# dragging the end handle backward past the live playback position would
+# fight the user's own drag by snapping it back to the start on every tick.
+$script:PreviewMarkerTimer.Add_Tick({
+    if ($MarkerBar.Visibility -ne 'Visible' -or $script:MarkerDurationSeconds -le 0) { return }
+    if (-not $script:MarkerDraggingStart -and -not $script:MarkerDraggingEnd) {
+        if ($script:MarkerHasTrim -and $VidPreview.Position.TotalSeconds -ge $script:MarkerEndSeconds) {
+            $VidPreview.Position = [TimeSpan]::FromSeconds($script:MarkerStartSeconds)
+        }
+    }
+})
+$script:PreviewMarkerTimer.Start()
+
+# Dragging the start handle. $script:MarkerStartSeconds (not the handle's
+# on-screen Canvas.Left) is the single source of truth - each DragDelta
+# accumulates e.HorizontalChange straight onto it (converted to seconds)
+# and Update-MarkerHandlePositions derives the pixel position fresh from
+# that afterwards. Earlier this read the position back via
+# Canvas.GetLeft() first and accumulated onto THAT instead, which could
+# drift out of sync with the real value by a pixel or two on rapid
+# DragDelta ticks and show up as the handle jittering while dragging -
+# going through $script:MarkerStartSeconds directly avoids that
+# read-back entirely. Also pauses playback for the duration of the drag
+# and seeks live to the exact frame under the handle (see
+# ThumbMarkStart's DragStarted/DragCompleted below) so the video actually
+# shows what you're marking as you move it, not just after you let go.
+# Clamped so it can never cross the end handle (leaves at least 1 real
+# second between them - a shorter "section" isn't worth marking).
+$ThumbMarkStart.Add_DragStarted({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $script:MarkerDraggingStart = $true
+    $script:MarkerSelectedSide = 'Start'
+    Update-MarkerSelectionVisual
+    $VidPreview.Pause()
+})
+$ThumbMarkStart.Add_DragDelta({
+    param($eventSender, $e)
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $usable = Get-MarkerTrackUsableWidth
+    $secondsPerPixel = $script:MarkerDurationSeconds / $usable
+    $newStart = $script:MarkerStartSeconds + ($e.HorizontalChange * $secondsPerPixel)
+    $newStart = [Math]::Min($newStart, $script:MarkerEndSeconds - 1)
+    $newStart = [Math]::Max(0, $newStart)
+    $script:MarkerStartSeconds = Get-SnappedMarkerTime -Seconds $newStart -Duration $script:MarkerDurationSeconds
+    Update-MarkerHandlePositions
+    # -KeepPaused: stay frozen on each frame as you drag rather than
+    # resuming playback mid-drag (DragCompleted below decides what
+    # happens once you let go).
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds -KeepPaused
+})
+$ThumbMarkStart.Add_DragCompleted({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $script:MarkerDraggingStart = $false
+    # Show the START frame you just set. If the preview wasn't paused
+    # before this drag, resume playing from there; if it was, stay
+    # paused right on that frame - either way it shows the point you
+    # just marked, not wherever it happened to be before you started.
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
+    Save-CurrentMarker
+})
+
+# Dragging the end handle - same pattern as the start handle, mirrored.
+# Seeks live to the marked END frame while dragging (rather than the
+# start) so you can see exactly where the clip will cut off.
+$ThumbMarkEnd.Add_DragStarted({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $script:MarkerDraggingEnd = $true
+    $script:MarkerSelectedSide = 'End'
+    Update-MarkerSelectionVisual
+    $VidPreview.Pause()
+})
+$ThumbMarkEnd.Add_DragDelta({
+    param($eventSender, $e)
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $usable = Get-MarkerTrackUsableWidth
+    $secondsPerPixel = $script:MarkerDurationSeconds / $usable
+    $newEnd = $script:MarkerEndSeconds + ($e.HorizontalChange * $secondsPerPixel)
+    $newEnd = [Math]::Max($newEnd, $script:MarkerStartSeconds + 1)
+    $newEnd = [Math]::Min($script:MarkerDurationSeconds, $newEnd)
+    $script:MarkerEndSeconds = Get-SnappedMarkerTime -Seconds $newEnd -Duration $script:MarkerDurationSeconds
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerEndSeconds -KeepPaused
+})
+$ThumbMarkEnd.Add_DragCompleted({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $script:MarkerDraggingEnd = $false
+    if ($script:VidPreviewPaused) {
+        # Stay paused right on the END frame you just set - that's the
+        # point you were adjusting, so that's what should be on screen.
+        Sync-PreviewFrameToPosition -Seconds $script:MarkerEndSeconds
+    } else {
+        # Preview is actively running - resume from the marked START so
+        # releasing shows the whole marked section play through, instead
+        # of starting right at its own tail end.
+        Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
+    }
+    Save-CurrentMarker
+})
+
+# Click anywhere on the empty track to move the playhead there WITHOUT
+# touching either marker - just for scrubbing to a moment you want to
+# look at. Thumb captures/handles its own MouseLeftButtonDown for
+# dragging (and marks the event Handled), so a click that actually lands
+# on a handle never reaches this - only clicks on the open track do.
+$MarkerTrack.Add_MouseLeftButtonDown({
+    param($eventSender, $e)
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $usable = Get-MarkerTrackUsableWidth
+    $clickX = $e.GetPosition($MarkerTrack).X - ($script:MarkerHandleWidth / 2)
+    $frac = [Math]::Max(0, [Math]::Min(1, $clickX / $usable))
+    Sync-PreviewFrameToPosition -Seconds ($frac * $script:MarkerDurationSeconds)
+})
+
+# Track resized (e.g. window resized) - handles are positioned in pixels,
+# so they need recalculating against the new width; the underlying
+# start/end seconds themselves don't change.
+$MarkerTrack.Add_SizeChanged({ Update-MarkerHandlePositions })
+
+# Drops the saved marker for this file entirely - goes back to playing in
+# full, same as a video that was never marked.
+$BtnClearMarker.Add_Click({
+    if (-not $script:MarkerPath) { return }
+    Clear-VideoMarker -Path $script:MarkerPath
+    $script:MarkerHasTrim = $false
+    $script:MarkerStartSeconds = 0
+    $script:MarkerEndSeconds = $script:MarkerDurationSeconds
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds 0
+
+    if ($script:VideoWallpaperCurrentPath -eq $script:MarkerPath) {
+        Request-WallpaperApply
+    }
+})
+
+# Loops just the marked section on repeat - lets you check what the
+# wallpaper will actually show without dragging anything. Works even for
+# an unmarked (full-length) video - it just plays normally, since there's
+# no section to loop yet. The existing poll timer above already loops
+# within $script:MarkerStartSeconds/EndSeconds once $script:MarkerHasTrim
+# is true (true immediately after any edit below, since every one of them
+# calls Save-CurrentMarker) - this button doesn't need its own separate
+# loop logic, it just needs to start playback at the right spot.
+$BtnPreviewMarker.Add_Click({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $script:VidPreviewPaused = $false
+    $BtnPlayPause.Content = "⏸"
+    $BtnPlayPause.ToolTip = "Pause preview"
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
+})
+
+# "Set Here" - use wherever the preview is CURRENTLY sitting (paused or
+# playing) as whichever point is currently selected (see
+# $script:MarkerSelectedSide / Update-MarkerSelectionVisual - set by
+# clicking or dragging either handle), instead of dragging a handle to
+# it. Pair with click-to-seek/Play-Pause above to land on the exact frame
+# you want first, then press this to mark it - much more precise than
+# dragging on a short track for a long video.
+$BtnSetSelectedHere.Add_Click({
+    if ($script:MarkerDurationSeconds -le 0) { return }
+    $pos = $VidPreview.Position.TotalSeconds
+    if ($script:MarkerSelectedSide -eq 'End') {
+        $script:MarkerEndSeconds = [Math]::Min($script:MarkerDurationSeconds, [Math]::Max($pos, $script:MarkerStartSeconds + 1))
+    } else {
+        $script:MarkerStartSeconds = [Math]::Max(0, [Math]::Min($pos, $script:MarkerEndSeconds - 1))
+    }
+    Update-MarkerHandlePositions
+    Save-CurrentMarker
+})
+
+# Nudge buttons - fine correction after a rough drag, without needing
+# pixel-perfect mouse control. Act on whichever handle is currently
+# selected - see Nudge-MarkerStart/Nudge-MarkerEnd and
+# $script:MarkerSelectedSide.
+$BtnSelMinus1.Add_Click({ if ($script:MarkerSelectedSide -eq 'End') { Nudge-MarkerEnd -Delta -1 } else { Nudge-MarkerStart -Delta -1 } })
+$BtnSelMinus01.Add_Click({ if ($script:MarkerSelectedSide -eq 'End') { Nudge-MarkerEnd -Delta -0.1 } else { Nudge-MarkerStart -Delta -0.1 } })
+$BtnSelPlus01.Add_Click({ if ($script:MarkerSelectedSide -eq 'End') { Nudge-MarkerEnd -Delta 0.1 } else { Nudge-MarkerStart -Delta 0.1 } })
+$BtnSelPlus1.Add_Click({ if ($script:MarkerSelectedSide -eq 'End') { Nudge-MarkerEnd -Delta 1 } else { Nudge-MarkerStart -Delta 1 } })
+
+# Numeric time entry - type an exact time and press Enter to apply it.
+# An unparsable value (see Parse-MarkerTime) just reverts the box back to
+# the last valid value instead of accepting garbage.
+$TxtMarkStartInput.Add_KeyDown({
+    param($eventSender, $e)
+    # WPF's Key enum member for this key is Enter (not the WinForms-style
+    # "Return") - using the typed enum reference here instead of a bare
+    # string avoids any ambiguity/coercion issue with that name.
+    if ($e.Key -ne [System.Windows.Input.Key]::Enter -or $script:MarkerDurationSeconds -le 0) { return }
+    $val = Parse-MarkerTime -Text $TxtMarkStartInput.Text
+    if ($null -eq $val) { $TxtMarkStartInput.Text = Format-MarkerTime $script:MarkerStartSeconds; return }
+    $script:MarkerStartSeconds = [Math]::Max(0, [Math]::Min($val, $script:MarkerEndSeconds - 1))
+    $script:MarkerSelectedSide = 'Start'
+    Update-MarkerSelectionVisual
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
+    Save-CurrentMarker
+})
+$TxtMarkEndInput.Add_KeyDown({
+    param($eventSender, $e)
+    if ($e.Key -ne [System.Windows.Input.Key]::Enter -or $script:MarkerDurationSeconds -le 0) { return }
+    $val = Parse-MarkerTime -Text $TxtMarkEndInput.Text
+    if ($null -eq $val) { $TxtMarkEndInput.Text = Format-MarkerTime $script:MarkerEndSeconds; return }
+    $script:MarkerEndSeconds = [Math]::Min($script:MarkerDurationSeconds, [Math]::Max($val, $script:MarkerStartSeconds + 1))
+    $script:MarkerSelectedSide = 'End'
+    Update-MarkerSelectionVisual
+    Update-MarkerHandlePositions
+    Sync-PreviewFrameToPosition -Seconds $script:MarkerEndSeconds
+    Save-CurrentMarker
+})
+
+# Play/Pause toggle for the in-app preview. $script:VidPreviewPaused is
+# the user's own explicit choice - separate from the temporary Pause()
+# calls the marker handles above make while scrubbing (those don't touch
+# this flag or the button's icon, and check it on release so a drag never
+# overrides a preview you'd deliberately paused first).
+$BtnPlayPause.Add_Click({
+    if ($script:VidPreviewPaused) {
+        $VidPreview.Play()
+        $script:VidPreviewPaused = $false
+        $BtnPlayPause.Content = "⏸"
+        $BtnPlayPause.ToolTip = "Pause preview"
+    } else {
+        $VidPreview.Pause()
+        $script:VidPreviewPaused = $true
+        $BtnPlayPause.Content = "▶"
+        $BtnPlayPause.ToolTip = "Resume preview"
+    }
+})
+
+
 # on every navigation step (see Update-PreviewDisplay). Only relevant while
 # PnlVideoBadge is showing the "click to play" filler for the CURRENT item -
 # $script:CurrentIsVideo already guards against stray clicks landing here
@@ -1423,7 +2127,10 @@ $PnlVideoBadge.Add_MouseLeftButtonDown({
         $VidPreview.Visibility = 'Visible'
         $PnlVideoBadge.Visibility = 'Collapsed'
         $VidPreview.Play()
-        $BtnStopPreview.Visibility = 'Visible'
+        $script:VidPreviewPaused = $false
+        $BtnPlayPause.Content = "⏸"
+        $BtnPlayPause.ToolTip = "Pause preview"
+        $PreviewControlsPanel.Visibility = 'Visible'
         Apply-PreviewVideoAspectRatio -AspectRatio (Get-SelectedVideoAspectRatio)
     }
     catch {
@@ -1433,7 +2140,8 @@ $PnlVideoBadge.Add_MouseLeftButtonDown({
         # async case - Play() accepts but the file then fails to actually
         # open - is instead caught by Add_MediaFailed above.)
         $VidPreview.Visibility = 'Collapsed'
-        $BtnStopPreview.Visibility = 'Collapsed'
+        $PreviewControlsPanel.Visibility = 'Collapsed'
+        Show-MarkerBarInactive
         $TxtVideoBadgeTitle.Text = "PLAYING AS VIDEO WALLPAPER"
         $TxtVideoBadgeSub.Text = "Check your desktop - couldn't load an in-app preview for this file"
         $PnlVideoBadge.Visibility = 'Visible'
@@ -1451,7 +2159,8 @@ $BtnStopPreview.Add_Click({
     $VidPreview.Stop()
     $VidPreview.Source = $null
     $VidPreview.Visibility = 'Collapsed'
-    $BtnStopPreview.Visibility = 'Collapsed'
+    $PreviewControlsPanel.Visibility = 'Collapsed'
+    Show-MarkerBarInactive
 
     if ($script:CurrentIsVideo -and $script:Folders.Count -gt 0 -and $script:CurImages.Count -gt 0) {
         $imgFile = $script:CurImages[$script:Config.ImageIndex]
@@ -1484,6 +2193,12 @@ $ChkShuffle.Add_Unchecked({
     Save-PlayerConfig -Config $script:Config | Out-Null
 })
 
+$BtnLoopFolder.Add_Click({
+    $script:Config.LoopFolderEnabled = -not [bool]$script:Config.LoopFolderEnabled
+    Save-PlayerConfig -Config $script:Config | Out-Null
+    Update-LoopFolderButtonVisual
+})
+
 $ChkHotkeys.Add_Checked({ Enable-Hotkeys })
 $ChkHotkeys.Add_Unchecked({ Disable-Hotkeys })
 
@@ -1502,6 +2217,7 @@ $window.Add_Closing({
     $script:PlayTimer.Stop()
     $script:QuickPlayTimer.Stop()
     $script:WallpaperApplyTimer.Stop()
+    $script:PreviewMarkerTimer.Stop()
     try { $VidPreview.Stop() } catch { }
     try { if ($script:MedPreviewFS) { $script:MedPreviewFS.Stop() } } catch { }
     Uninitialize-HotkeyInfrastructure
@@ -1526,6 +2242,7 @@ $window.Add_Loaded({
     Sync-QuickPlaySpeedToConfig
     Apply-PreviewStretch
     $ChkShuffle.IsChecked = [bool]$script:Config.ShuffleEnabled
+    Update-LoopFolderButtonVisual
 
     # Global Hotkey and Video Audio always start OFF/unchecked on launch,
     # regardless of what was saved last session - these are deliberately
@@ -1574,5 +2291,6 @@ finally {
     $script:PlayTimer.Stop()
     $script:QuickPlayTimer.Stop()
     $script:WallpaperApplyTimer.Stop()
+    $script:PreviewMarkerTimer.Stop()
     Uninitialize-HotkeyInfrastructure
 }

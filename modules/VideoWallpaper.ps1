@@ -63,6 +63,16 @@ $script:VideoWallpaperScreenBounds = $null
 $script:VideoWallpaperFadeMs    = 700      # crossfade duration between two videos, ms
 $script:VideoWorkerW            = [IntPtr]::Zero
 
+# Trim markers (seconds) for whichever video is current/incoming - see
+# Show-VideoWallpaper's -MarkerStart/-MarkerEnd params and VideoMarkers.ps1.
+# Same single-shared-variable pattern already used for VideoWallpaperOnEnded
+# above (not per-player) - fine because only one Show-VideoWallpaper call is
+# ever "in flight" at a time. MarkerEnd of 0 means "no restriction - play to
+# the real end", same meaning AspectRatio of 0 already uses for "Default".
+$script:VideoWallpaperMarkerStart = 0
+$script:VideoWallpaperMarkerEnd   = 0
+$script:VideoWallpaperMarkerTimer = $null
+
 function Get-VWActivePlayer   { $script:VideoWallpaperPlayers[$script:VideoWallpaperActive] }
 function Get-VWInactivePlayer { $script:VideoWallpaperPlayers[1 - $script:VideoWallpaperActive] }
 
@@ -86,6 +96,37 @@ function Get-VideoWorkerWHandle {
     }
     [Win32.VideoWallpaperNative]::EnumWindows($enumProc, [IntPtr]::Zero) | Out-Null
     return $script:VideoWorkerW
+}
+
+function Invoke-VideoWallpaperPlaybackEnded {
+    <#
+    .SYNOPSIS
+        Shared "this player just reached the end of what it should play"
+        logic - fired either by a real MediaEnded (true EOF) or by the
+        marker poll timer (the marked section's end point was reached).
+        Guards against firing for a player that isn't the currently-active
+        one (see the .NOTES on the old inline handler this was extracted
+        from) since callers besides the MediaEnded event (i.e. the poll
+        timer) don't already guarantee that themselves.
+    #>
+    param([Parameter(Mandatory)]$Sender)
+
+    if ($Sender -ne (Get-VWActivePlayer)) { return }
+    if ($script:VideoWallpaperOnEnded) {
+        # The caller (Wall-E.ps1) decides what plays next - e.g. jump to
+        # the next image/video. Pause (freeze on the final frame) rather
+        # than Stop/rewind, so this player has a proper last frame to
+        # crossfade FROM instead of jumping back to frame 0 or going black
+        # while the caller's decision/transition happens.
+        $Sender.Pause()
+        & $script:VideoWallpaperOnEnded
+    } else {
+        # No caller-supplied "what's next" logic - just loop this video (or,
+        # if a start marker is set, loop just the marked section - see
+        # Restart-VideoWallpaper, which this mirrors).
+        $Sender.Position = [TimeSpan]::FromSeconds($script:VideoWallpaperMarkerStart)
+        $Sender.Play()
+    }
 }
 
 function Initialize-VideoWallpaperWindow {
@@ -155,29 +196,49 @@ function Initialize-VideoWallpaperWindow {
     $script:VideoWallpaperWindow.Height = $screen.Height
 
     # Loop, or fire the caller's "advance to next" callback, when a video
-    # reaches its end - but only for whichever player is CURRENTLY the
-    # active one. During a crossfade the outgoing player is momentarily
-    # still "playing" (fading to transparent) and its own MediaEnded isn't
-    # relevant anymore since Show-VideoWallpaper already moved on.
-    $onEndedHandler = {
-        $sender = $this
-        if ($sender -ne (Get-VWActivePlayer)) { return }
-        if ($script:VideoWallpaperOnEnded) {
-            # The caller (Wall-E.ps1) decides what plays next - e.g. jump
-            # to the next image/video. Pause (freeze on the final frame)
-            # rather than Stop/rewind, so this player has a proper last
-            # frame to crossfade FROM instead of jumping back to frame 0
-            # or going black while the caller's decision/transition happens.
-            $sender.Pause()
-            & $script:VideoWallpaperOnEnded
-        } else {
-            # No caller-supplied "what's next" logic - just loop this video.
-            $sender.Position = [TimeSpan]::Zero
-            $sender.Play()
-        }
-    }
+    # reaches its end (true EOF, via MediaEnded below - OR the marker's end
+    # point, via the poll timer below that) - but only for whichever player
+    # is CURRENTLY the active one. During a crossfade the outgoing player is
+    # momentarily still "playing" (fading to transparent) and its own
+    # MediaEnded/marker-end isn't relevant anymore since Show-VideoWallpaper
+    # already moved on. Shared by both trigger paths via
+    # Invoke-VideoWallpaperPlaybackEnded so a marked "section" hands off to
+    # "next"/loops exactly the same way a full video already does.
+    $onEndedHandler = { Invoke-VideoWallpaperPlaybackEnded -Sender $this }
     $playerA.Add_MediaEnded($onEndedHandler)
     $playerB.Add_MediaEnded($onEndedHandler)
+
+    # Once a player has actually opened its file, jump to the marked start
+    # point (if any) before the first frame is shown - see Show-
+    # VideoWallpaper's -MarkerStart param. Applies to whichever player just
+    # opened (not necessarily the active one - the incoming player during a
+    # crossfade opens before it becomes active).
+    $onOpenedHandler = {
+        if ($script:VideoWallpaperMarkerStart -gt 0) {
+            $this.Position = [TimeSpan]::FromSeconds($script:VideoWallpaperMarkerStart)
+        }
+    }
+    $playerA.Add_MediaOpened($onOpenedHandler)
+    $playerB.Add_MediaOpened($onOpenedHandler)
+
+    # Polls the active player's position against the marker's end point
+    # (MediaElement has no "reached position X" event of its own - only
+    # true-EOF MediaEnded). No-ops whenever MarkerEnd is 0 (no restriction)
+    # or the active player hasn't opened yet. Runs for the app's whole
+    # session once created here rather than being started/stopped per
+    # video - trivial cost when idle, and avoids yet another lifecycle to
+    # track alongside Show-VideoWallpaper/Hide-VideoWallpaper.
+    $script:VideoWallpaperMarkerTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:VideoWallpaperMarkerTimer.Interval = [TimeSpan]::FromMilliseconds(200)
+    $script:VideoWallpaperMarkerTimer.Add_Tick({
+        if ($script:VideoWallpaperMarkerEnd -le 0) { return }
+        $active = Get-VWActivePlayer
+        if (-not $active -or -not $active.NaturalDuration.HasTimeSpan) { return }
+        if ($active.Position.TotalSeconds -ge $script:VideoWallpaperMarkerEnd) {
+            Invoke-VideoWallpaperPlaybackEnded -Sender $active
+        }
+    })
+    $script:VideoWallpaperMarkerTimer.Start()
 
     $script:VideoWallpaperWindow.Add_SourceInitialized({
         $helper  = New-Object System.Windows.Interop.WindowInteropHelper($script:VideoWallpaperWindow)
@@ -341,6 +402,17 @@ function Show-VideoWallpaper {
         it's already been paused on its final frame) - e.g. "jump to the
         next image/video in the library". Runs on the UI dispatcher thread.
 
+    .PARAMETER MarkerStart
+        Where to start playback, in seconds (see VideoMarkers.ps1). 0 (the
+        default) starts at the real beginning of the file.
+
+    .PARAMETER MarkerEnd
+        Where to end/loop/hand-off, in seconds. 0 (the default) means no
+        restriction - the video plays to its real end. When set, reaching
+        this position is treated exactly like a real MediaEnded (see
+        Invoke-VideoWallpaperPlaybackEnded) - looping back to MarkerStart,
+        or firing OnEnded, same as a full video would at true EOF.
+
     .NOTES
         Calling this again with the SAME path that's already playing (e.g.
         because the user just changed the aspect-ratio dropdown) does NOT
@@ -353,7 +425,9 @@ function Show-VideoWallpaper {
         [Parameter(Mandatory)][string]$Path,
         [bool]$Muted = $true,
         [double]$AspectRatio = 0,
-        [scriptblock]$OnEnded = $null
+        [scriptblock]$OnEnded = $null,
+        [double]$MarkerStart = 0,
+        [double]$MarkerEnd = 0
     )
 
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
@@ -361,6 +435,8 @@ function Show-VideoWallpaper {
 
     $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
     $script:VideoWallpaperOnEnded = $OnEnded
+    $script:VideoWallpaperMarkerStart = [Math]::Max(0, $MarkerStart)
+    $script:VideoWallpaperMarkerEnd   = [Math]::Max(0, $MarkerEnd)
     Set-VideoWallpaperAspectRatio -AspectRatio $AspectRatio
 
     $activePlayer = Get-VWActivePlayer
@@ -436,15 +512,17 @@ function Set-VideoWallpaperMuted {
 function Restart-VideoWallpaper {
     <#
     .SYNOPSIS
-        Replays the currently-active video from the beginning in place -
-        used by the caller's OnEnded callback when the video should just
-        loop forever rather than advance to the next item (e.g. Slideshow
-        is off and this video is the "permanent" wallpaper, the same way a
-        static image just stays put unchanged).
+        Replays the currently-active video in place - used by the caller's
+        OnEnded callback when the video should just loop forever rather
+        than advance to the next item (e.g. Slideshow is off and this
+        video is the "permanent" wallpaper, the same way a static image
+        just stays put unchanged). Loops from $script:VideoWallpaperMarkerStart
+        (0 - the real beginning - unless a trim marker is set), so a marked
+        section loops just that section rather than the whole file.
     #>
     $active = Get-VWActivePlayer
     if (-not $active) { return }
-    $active.Position = [TimeSpan]::Zero
+    $active.Position = [TimeSpan]::FromSeconds($script:VideoWallpaperMarkerStart)
     $active.Play()
 }
 
@@ -458,6 +536,11 @@ function Uninitialize-VideoWallpaperInfrastructure {
         VideoWallpaper's existing lazy-init logic transparently rebuilds
         everything the next time a video is shown.
     #>
+    if ($script:VideoWallpaperMarkerTimer) { try { $script:VideoWallpaperMarkerTimer.Stop() } catch { } }
+    $script:VideoWallpaperMarkerTimer = $null
+    $script:VideoWallpaperMarkerStart = 0
+    $script:VideoWallpaperMarkerEnd   = 0
+
     foreach ($p in $script:VideoWallpaperPlayers) {
         try { $p.BeginAnimation([System.Windows.UIElement]::OpacityProperty, $null) } catch { }
         try { $p.Stop() } catch { }

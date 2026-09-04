@@ -154,6 +154,12 @@ function Get-PlayerConfig {
         # the CmbVideoAspect Tag values, stored as text, e.g. "1.7777777777777777".
         $cfg | Add-Member -MemberType NoteProperty -Name 'VideoAspectRatio' -Value 'Default'
     }
+    if (-not (Get-Member -InputObject $cfg -Name 'LoopFolderEnabled' -MemberType NoteProperty)) {
+        # When true, Slideshow (and Shuffle) wrap around inside the current
+        # folder instead of rolling into the next folder once the last
+        # image is reached - see Go-NextImage/Go-PrevImage/Go-RandomImage.
+        $cfg | Add-Member -MemberType NoteProperty -Name 'LoopFolderEnabled' -Value $false
+    }
 
     return $cfg
 }

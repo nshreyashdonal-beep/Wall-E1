@@ -12,6 +12,7 @@
         <SolidColorBrush x:Key="AccentBrush" Color="#D8A94A"/>
         <SolidColorBrush x:Key="TextBrush" Color="#E8E8E8"/>
         <SolidColorBrush x:Key="MutedTextBrush" Color="#8C8C94"/>
+        <SolidColorBrush x:Key="MarkerSelectedBrush" Color="#E5484D"/>
 
         <Style TargetType="Button" x:Key="NavButton">
             <Setter Property="Background" Value="#1E1E24"/>
@@ -444,17 +445,26 @@
                     <Button x:Name="BtnFullScreen" Content="⛶" Style="{StaticResource NavButton}" Width="36" Padding="0" ToolTip="Full screen preview"/>
                 </StackPanel>
 
-                <!-- Stop/close button for the in-app video preview. Collapsed
-                     by default (matches PnlVideoBadge's "click to play" state)
-                     and only shown once VidPreview is actually playing - see
-                     PnlVideoBadge's click handler and BtnStopPreview's own
-                     click handler in Wall-E.ps1, both of which keep this in
-                     sync with VidPreview.Visibility. Ends the in-app preview
-                     (and its MediaElement/Media Foundation resources - see
+                <!-- Play/Pause + Stop controls for the in-app video preview.
+                     The whole panel is collapsed by default (matches
+                     PnlVideoBadge's "click to play" state) and only shown
+                     once VidPreview is actually playing - see PnlVideoBadge's
+                     click handler and BtnStopPreview's own click handler in
+                     Wall-E.ps1, both of which keep PreviewControlsPanel in
+                     sync with VidPreview.Visibility (both buttons stay
+                     Visible themselves - it's the panel that's toggled, so
+                     there's one visibility flag instead of two to keep in
+                     sync). BtnPlayPause toggles $script:VidPreviewPaused;
+                     BtnStopPreview ends the in-app preview entirely (and its
+                     MediaElement/Media Foundation resources - see
                      Invoke-MemoryTrim) without navigating away from the item. -->
-                <Button x:Name="BtnStopPreview" Content="✕" Visibility="Collapsed" Style="{StaticResource NavButton}"
-                        Width="30" Height="30" Padding="0" FontSize="13" HorizontalAlignment="Left" VerticalAlignment="Top"
-                        Margin="10,10,0,0" ToolTip="Stop in-app preview"/>
+                <StackPanel x:Name="PreviewControlsPanel" Orientation="Horizontal" Visibility="Collapsed"
+                            HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0">
+                    <Button x:Name="BtnPlayPause" Content="⏸" Style="{StaticResource NavButton}"
+                            Width="30" Height="30" Padding="0" FontSize="13" Margin="0,0,6,0" ToolTip="Pause preview"/>
+                    <Button x:Name="BtnStopPreview" Content="✕" Style="{StaticResource NavButton}"
+                            Width="30" Height="30" Padding="0" FontSize="13" ToolTip="Stop in-app preview"/>
+                </StackPanel>
             </Grid>
         </Grid>
 
@@ -464,11 +474,127 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,10,0,0">
         <StackPanel>
 
-            <!-- Folder / image info -->
-            <StackPanel Margin="0,0,0,0">
-                <TextBlock x:Name="TxtFolderName" Text="No folder loaded" FontSize="15" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" TextTrimming="CharacterEllipsis"/>
-                <TextBlock x:Name="TxtImageInfo" Text="—" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
-            </StackPanel>
+            <!-- Folder / image info + Loop Folder toggle -->
+            <Grid Margin="0,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="TxtFolderName" Text="No folder loaded" FontSize="15" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="TxtImageInfo" Text="—" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <!-- Toggle: when on, Slideshow (and Shuffle) wrap around
+                     inside the CURRENT folder instead of rolling into the
+                     next one once the last image is reached - see
+                     Go-NextImage/Go-PrevImage/Go-RandomImage in
+                     Wall-E.ps1. Styled with PrimaryButton (accent/yellow -
+                     same color as TxtFolderName above) while on, plain
+                     NavButton while off - see Update-LoopFolderButtonVisual. -->
+                <Button x:Name="BtnLoopFolder" Grid.Column="1" Content="⟲ Loop Folder" Style="{StaticResource NavButton}"
+                        VerticalAlignment="Top" Padding="10,6" FontSize="11"
+                        ToolTip="When Slideshow reaches the end of this folder, loop back to its start instead of moving to the next folder"/>
+            </Grid>
+
+            <!-- Video trimmer: drag the two handles (or click anywhere on
+                 the track) to pick the in/out points a video should play.
+                 Placed here (below the preview, not overlaid on top of it)
+                 so it never obscures the video itself - only shown for
+                 video items once the in-app preview knows the real
+                 duration (see VidPreview's MediaOpened handler and
+                 Show-MarkerBar in Wall-E.ps1). Dragging is handled via
+                 ThumbMarkStart/ThumbMarkEnd's DragDelta events; clicking
+                 the empty track via MarkerTrack's own MouseLeftButtonDown
+                 just seeks (no marker change). The accent-colored
+                 MarkerRangeFill is repositioned in code-behind whenever
+                 the track resizes, a handle moves, or playback position
+                 changes (Set-VideoMarker persists the result per-file -
+                 see VideoMarkers.ps1). PnlMarkerStartRow/PnlMarkerEndRow
+                 give precise alternatives to dragging - numeric entry,
+                 "use the current position", and +/-1s / +/-0.1s nudges. -->
+            <Border x:Name="MarkerBar" Visibility="Collapsed" Margin="0,10,0,0"
+                    Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                <StackPanel>
+                    <Grid x:Name="MarkerTrackRow" Height="20">
+                        <Border Height="4" Background="{StaticResource BorderBrush2}" CornerRadius="2" VerticalAlignment="Center"/>
+                        <Canvas x:Name="MarkerTrack" Background="Transparent" Height="20">
+                            <Rectangle x:Name="MarkerRangeFill" Height="4" Canvas.Top="8" RadiusX="2" RadiusY="2" Fill="{StaticResource AccentBrush}"/>
+                            <!-- Tag carries this handle's current fill color -
+                                 both start at the base accent/yellow; the
+                                 one you last clicked or dragged (the one
+                                 nudge/Set-Here below currently act on - see
+                                 Update-MarkerSelectionVisual) turns red, the
+                                 other stays yellow. Tag is repurposed here
+                                 rather than adding a real dependency
+                                 property, since it's already free to set
+                                 per-instance from code and the template
+                                 just needs somewhere to bind Fill from. -->
+                            <Thumb x:Name="ThumbMarkStart" Width="14" Height="14" Canvas.Top="3" Cursor="SizeWE" ToolTip="Drag to set start point" Tag="{StaticResource AccentBrush}">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Ellipse Fill="{TemplateBinding Tag}" Stroke="White" StrokeThickness="1.5"/>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                            <Thumb x:Name="ThumbMarkEnd" Width="14" Height="14" Canvas.Top="3" Cursor="SizeWE" ToolTip="Drag to set end point" Tag="{StaticResource AccentBrush}">
+                                <Thumb.Template>
+                                    <ControlTemplate TargetType="Thumb">
+                                        <Ellipse Fill="{TemplateBinding Tag}" Stroke="White" StrokeThickness="1.5"/>
+                                    </ControlTemplate>
+                                </Thumb.Template>
+                            </Thumb>
+                        </Canvas>
+                    </Grid>
+                    <Grid Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" x:Name="TxtMarkRange" Text="Full video" FontSize="10" Foreground="{StaticResource MutedTextBrush}" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" x:Name="BtnPreviewMarker" Content="▶ Preview section" Style="{StaticResource NavButton}"
+                                FontSize="10" Padding="8,3" ToolTip="Play just the marked section on loop"/>
+                        <Button Grid.Column="2" x:Name="BtnClearMarker" Content="Reset to full video" Style="{StaticResource NavButton}"
+                                FontSize="10" Padding="8,3" Margin="8,0,0,0" ToolTip="Clear the marked section - play the whole video"/>
+                    </Grid>
+
+                    <!-- Start point: numeric entry (type a time, press Enter),
+                         "Set Here" (uses VidPreview's current position - see
+                         click-to-seek on MarkerTrack and Play/Pause above,
+                         which are how you land on the frame you want first),
+                         and +/-1s / +/-0.1s nudges for fine correction after
+                         a drag. All funnel through Nudge-MarkerStart or set
+                         $script:MarkerStartSeconds directly then call
+                         Update-MarkerHandlePositions + Save-CurrentMarker -
+                         same as dragging the handle itself. -->
+                    <StackPanel x:Name="PnlMarkerStartRow" Orientation="Horizontal" Margin="0,10,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Start" Width="32" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11"/>
+                        <TextBox x:Name="TxtMarkStartInput" Width="52" Height="24" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
+                    </StackPanel>
+
+                    <!-- End point display - same as Start, mirrored. -->
+                    <StackPanel x:Name="PnlMarkerEndRow" Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="End" Width="32" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11"/>
+                        <TextBox x:Name="TxtMarkEndInput" Width="52" Height="24" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
+                    </StackPanel>
+
+                    <!-- Shared editing controls - act on whichever handle
+                         was last clicked/dragged (see
+                         Update-MarkerSelectionVisual and each Thumb's
+                         DragStarted in Wall-E.ps1), rather than duplicating
+                         a full set of Set-Here/nudge buttons per side.
+                         TxtMarkerSelectedLabel names which one that is and
+                         is colored to match that handle's highlight. -->
+                    <StackPanel x:Name="PnlMarkerEditRow" Orientation="Horizontal" Margin="0,10,0,0" VerticalAlignment="Center">
+                        <TextBlock x:Name="TxtMarkerSelectedLabel" Text="Editing: START" Width="80" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="Bold"/>
+                        <Button x:Name="BtnSetSelectedHere" Content="Set Here" Style="{StaticResource NavButton}" FontSize="10" Padding="6,3" Margin="6,0,0,0" ToolTip="Use the current preview position as the selected point"/>
+                        <Button x:Name="BtnSelMinus1" Content="−1s" Style="{StaticResource NavButton}" FontSize="10" Padding="6,3" Margin="6,0,0,0"/>
+                        <Button x:Name="BtnSelMinus01" Content="−.1s" Style="{StaticResource NavButton}" FontSize="10" Padding="6,3" Margin="4,0,0,0"/>
+                        <Button x:Name="BtnSelPlus01" Content="+.1s" Style="{StaticResource NavButton}" FontSize="10" Padding="6,3" Margin="4,0,0,0"/>
+                        <Button x:Name="BtnSelPlus1" Content="+1s" Style="{StaticResource NavButton}" FontSize="10" Padding="6,3" Margin="4,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
 
             <!-- Directional controls (mirrors arrow keys) -->
             <Grid Margin="0,12,0,0">

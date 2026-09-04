@@ -3,12 +3,13 @@
 ;
 ; HOW TO USE:
 ;   1. Install Inno Setup (free): https://jrsoftware.org/isdl.php
-;   2. Build Wall-E.exe first (see build.ps1 or your ps2exe command) so it
-;      sits next to this script alongside modules\, UI\, assets\.
-;   3. Open this file in Inno Setup, or compile from the command line:
+;   2. Build Wall-E.exe first (run build.ps1 on Windows) so it sits next to
+;      this script alongside modules\, UI\, assets\, README.md.
+;   3. Open this file in Inno Setup and click Compile, or from a command
+;      prompt:
 ;        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" WallE.iss
-;   4. The compiled installer lands in the .\Output folder as
-;      Wall-E-Setup.exe - that's the single file you distribute/sell.
+;   4. The compiled installer lands in .\Output\Wall-E-Setup.exe - that is
+;      the single file you distribute.
 ;
 ; This script assumes the following layout next to WallE.iss:
 ;   Wall-E.exe
@@ -20,12 +21,15 @@
 
 #define MyAppName "Wall-E"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Your Name"
-#define MyAppURL "https://example.com"
+#define MyAppPublisher "Shreyash Donal"
+#define MyAppURL ""
 #define MyAppExeName "Wall-E.exe"
 
 [Setup]
-AppId={{B6F1E0B0-6C2A-4B7E-9C7E-3C5F2A9F7E10}}
+; Unique per-app GUID - do not reuse across unrelated apps, and do not
+; regenerate this once you've shipped a version, or Windows will treat
+; upgrades as a fresh install instead of an update.
+AppId={{732CEF5C-EBBD-43C8-924E-9DAA97DD601B}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -36,7 +40,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 ; Per-user install by default so it doesn't require admin rights.
-; Switch to "admin" + PrivilegesRequired if you want a machine-wide install.
+; Switch to PrivilegesRequired=admin if you want a machine-wide install.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=Output
@@ -47,6 +51,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
+; Uncomment if you add a LICENSE.txt file next to this script:
+; LicenseFile=LICENSE.txt
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
