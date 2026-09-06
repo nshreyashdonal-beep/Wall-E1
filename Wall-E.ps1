@@ -34,6 +34,26 @@
     (or right-click > Run with PowerShell)
 #>
 
+# Bypass the execution policy for THIS process only, so Wall-E.ps1 can be
+# run directly (double-click / "Run with PowerShell" / a plain
+# `powershell.exe -File Wall-E.ps1`) without also passing
+# `-ExecutionPolicy Bypass` on the command line every time.
+#
+# Scope 'Process' only affects this one running instance and is gone the
+# moment it exits - it never touches the machine-wide or CurrentUser
+# policy, so nothing here is left changed system-wide.
+#
+# CAVEAT: this line only runs at all if the policy already let the script
+# start in the first place. If your policy is Restricted/AllSigned,
+# PowerShell refuses to execute ANY line of an unsigned .ps1 - including
+# this one - before it ever gets here, so this won't help in that case.
+# It only removes the need for the flag when your policy was already
+# permissive enough to reach this point (e.g. RemoteSigned, which is
+# Windows' modern default and already allows local scripts to run).
+# If double-clicking/-File still fails outright, run once as
+# Administrator: Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+try { Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force } catch { }
+
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
@@ -1522,9 +1542,25 @@ $script:MarkerSelectedSide = 'Start'
 $script:VidPreviewPaused = $false
 
 function Format-MarkerTime {
+    <#
+    .SYNOPSIS
+        Renders seconds as "m:ss.s". Always shows one decimal place - the
+        old version built this off TimeSpan's .Seconds property, which is
+        a whole number and silently threw away any fractional part, so
+        every +/-0.1s nudge (12.0 -> 12.1 -> 12.2 ...) redisplayed as the
+        same truncated "0:12" no matter how many times you pressed it.
+    #>
     param([double]$Seconds)
-    $ts = [TimeSpan]::FromSeconds([Math]::Max(0, $Seconds))
-    '{0}:{1:D2}' -f [int]$ts.TotalMinutes, $ts.Seconds
+    $total = [Math]::Max(0.0, $Seconds)
+    $mins  = [int][Math]::Floor($total / 60)
+    $secs  = $total - ($mins * 60)
+    # Guard against float rounding pushing seconds up to "60.0" (e.g.
+    # 59.96 rounds to "60.0" when formatted to 1 decimal below).
+    if ([Math]::Round($secs, 1) -ge 60) {
+        $mins++
+        $secs = 0
+    }
+    '{0}:{1}' -f $mins, $secs.ToString('00.0')
 }
 
 function Parse-MarkerTime {
@@ -1596,7 +1632,7 @@ function Update-MarkerHandlePositions {
     [System.Windows.Controls.Canvas]::SetLeft($ThumbMarkStart, $startX)
     [System.Windows.Controls.Canvas]::SetLeft($ThumbMarkEnd, $endX)
     [System.Windows.Controls.Canvas]::SetLeft($MarkerRangeFill, $startX + ($script:MarkerHandleWidth / 2))
-    $MarkerRangeFill.Width = [Math]::Max(0, $endX - $startX)
+    $MarkerRangeFill.Width = [Math]::Max(0.0, $endX - $startX)
 
     $TxtMarkStartInput.Text = Format-MarkerTime $script:MarkerStartSeconds
     $TxtMarkEndInput.Text   = Format-MarkerTime $script:MarkerEndSeconds
@@ -1795,7 +1831,7 @@ function Sync-PreviewFrameToPosition {
            callback instead lets the just-started Play() settle first.
     #>
     param([double]$Seconds, [switch]$KeepPaused)
-    $target = [Math]::Max(0, $Seconds)
+    $target = [Math]::Max(0.0, $Seconds)
     if ($script:MarkerDurationSeconds -gt 0.1) {
         $target = [Math]::Min($target, $script:MarkerDurationSeconds - 0.05)
     }
@@ -1817,7 +1853,14 @@ function Nudge-MarkerStart {
     if ($script:MarkerDurationSeconds -le 0) { return }
     $newStart = $script:MarkerStartSeconds + $Delta
     $newStart = [Math]::Min($newStart, $script:MarkerEndSeconds - 1)
-    $script:MarkerStartSeconds = [Math]::Max(0, $newStart)
+    # 0.0, not 0: a bare int 0 here makes PowerShell resolve this call
+    # against Math.Max(int, int) instead of Math.Max(double, double),
+    # which silently truncates $newStart to a whole number - every
+    # +/-0.1s nudge on Start got its fractional part thrown away right
+    # here (Nudge-MarkerEnd never had this because both of its Max()
+    # arguments are already doubles, so there's no int literal to
+    # mis-bind against).
+    $script:MarkerStartSeconds = [Math]::Max(0.0, $newStart)
     Update-MarkerHandlePositions
     Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
     Save-CurrentMarker
@@ -1923,7 +1966,7 @@ $ThumbMarkStart.Add_DragDelta({
     $secondsPerPixel = $script:MarkerDurationSeconds / $usable
     $newStart = $script:MarkerStartSeconds + ($e.HorizontalChange * $secondsPerPixel)
     $newStart = [Math]::Min($newStart, $script:MarkerEndSeconds - 1)
-    $newStart = [Math]::Max(0, $newStart)
+    $newStart = [Math]::Max(0.0, $newStart)
     $script:MarkerStartSeconds = Get-SnappedMarkerTime -Seconds $newStart -Duration $script:MarkerDurationSeconds
     Update-MarkerHandlePositions
     # -KeepPaused: stay frozen on each frame as you drag rather than
@@ -1996,8 +2039,21 @@ $MarkerTrack.Add_MouseLeftButtonDown({
     if ($script:MarkerDurationSeconds -le 0) { return }
     $usable = Get-MarkerTrackUsableWidth
     $clickX = $e.GetPosition($MarkerTrack).X - ($script:MarkerHandleWidth / 2)
-    $frac = [Math]::Max(0, [Math]::Min(1, $clickX / $usable))
-    Sync-PreviewFrameToPosition -Seconds ($frac * $script:MarkerDurationSeconds)
+    $frac = [Math]::Max(0.0, [Math]::Min(1.0, $clickX / $usable))
+    $clickSeconds = $frac * $script:MarkerDurationSeconds
+
+    # Also select whichever handle (Start/End) is nearer to the click.
+    # Without this, the +/-1s/+/-0.1s nudge buttons keep acting on
+    # whatever was selected before the click - looking exactly like "the
+    # nudge buttons don't work" when you click near the OTHER handle.
+    if ([Math]::Abs($clickSeconds - $script:MarkerStartSeconds) -le [Math]::Abs($clickSeconds - $script:MarkerEndSeconds)) {
+        $script:MarkerSelectedSide = 'Start'
+    } else {
+        $script:MarkerSelectedSide = 'End'
+    }
+    Update-MarkerSelectionVisual
+
+    Sync-PreviewFrameToPosition -Seconds $clickSeconds
 })
 
 # Track resized (e.g. window resized) - handles are positioned in pixels,
@@ -2050,7 +2106,7 @@ $BtnSetSelectedHere.Add_Click({
     if ($script:MarkerSelectedSide -eq 'End') {
         $script:MarkerEndSeconds = [Math]::Min($script:MarkerDurationSeconds, [Math]::Max($pos, $script:MarkerStartSeconds + 1))
     } else {
-        $script:MarkerStartSeconds = [Math]::Max(0, [Math]::Min($pos, $script:MarkerEndSeconds - 1))
+        $script:MarkerStartSeconds = [Math]::Max(0.0, [Math]::Min($pos, $script:MarkerEndSeconds - 1))
     }
     Update-MarkerHandlePositions
     Save-CurrentMarker
@@ -2095,7 +2151,7 @@ $TxtMarkStartInput.Add_KeyDown({
     if ($e.Key -ne [System.Windows.Input.Key]::Enter -or $script:MarkerDurationSeconds -le 0) { return }
     $val = Parse-MarkerTime -Text $TxtMarkStartInput.Text
     if ($null -eq $val) { $TxtMarkStartInput.Text = Format-MarkerTime $script:MarkerStartSeconds; return }
-    $script:MarkerStartSeconds = [Math]::Max(0, [Math]::Min($val, $script:MarkerEndSeconds - 1))
+    $script:MarkerStartSeconds = [Math]::Max(0.0, [Math]::Min($val, $script:MarkerEndSeconds - 1))
     $script:MarkerSelectedSide = 'Start'
     Update-MarkerSelectionVisual
     Update-MarkerHandlePositions
