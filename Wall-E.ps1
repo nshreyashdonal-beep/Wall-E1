@@ -1932,6 +1932,11 @@ $ThumbMarkStart.Add_DragDelta({
     Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds -KeepPaused
 })
 $ThumbMarkStart.Add_DragCompleted({
+    # Belt-and-suspenders: Thumb releases its own mouse capture
+    # internally on drag end, but explicitly releasing here too costs
+    # nothing if it's already released, and guarantees it if anything
+    # upstream ever left it held.
+    [System.Windows.Input.Mouse]::Capture($null) | Out-Null
     if ($script:MarkerDurationSeconds -le 0) { return }
     $script:MarkerDraggingStart = $false
     # Show the START frame you just set. If the preview wasn't paused
@@ -1965,6 +1970,7 @@ $ThumbMarkEnd.Add_DragDelta({
     Sync-PreviewFrameToPosition -Seconds $script:MarkerEndSeconds -KeepPaused
 })
 $ThumbMarkEnd.Add_DragCompleted({
+    [System.Windows.Input.Mouse]::Capture($null) | Out-Null
     if ($script:MarkerDurationSeconds -le 0) { return }
     $script:MarkerDraggingEnd = $false
     if ($script:VidPreviewPaused) {
@@ -2062,6 +2068,25 @@ $BtnSelPlus1.Add_Click({ if ($script:MarkerSelectedSide -eq 'End') { Nudge-Marke
 # Numeric time entry - type an exact time and press Enter to apply it.
 # An unparsable value (see Parse-MarkerTime) just reverts the box back to
 # the last valid value instead of accepting garbage.
+# Force-claim focus on click. Under normal circumstances a TextBox
+# focuses itself automatically on click - these are here as a defensive
+# fallback in case a Thumb's drag-capture (ThumbMarkStart/ThumbMarkEnd,
+# both of which call CaptureMouse() while dragging) hasn't fully released
+# for some reason: while ANY element still holds mouse capture, ALL
+# clicks anywhere in the window - including here - get routed to that
+# element instead of whatever was actually clicked, which would look
+# exactly like "clicking the box does nothing at all". Explicitly
+# releasing capture first, then claiming focus, makes the click work
+# regardless of whether that's what's actually happening.
+$TxtMarkStartInput.Add_PreviewMouseLeftButtonDown({
+    [System.Windows.Input.Mouse]::Capture($null) | Out-Null
+    $TxtMarkStartInput.Focus() | Out-Null
+})
+$TxtMarkEndInput.Add_PreviewMouseLeftButtonDown({
+    [System.Windows.Input.Mouse]::Capture($null) | Out-Null
+    $TxtMarkEndInput.Focus() | Out-Null
+})
+
 $TxtMarkStartInput.Add_KeyDown({
     param($eventSender, $e)
     # WPF's Key enum member for this key is Enter (not the WinForms-style

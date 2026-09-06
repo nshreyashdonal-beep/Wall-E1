@@ -569,13 +569,23 @@
                          same as dragging the handle itself. -->
                     <StackPanel x:Name="PnlMarkerStartRow" Orientation="Horizontal" Margin="0,10,0,0" VerticalAlignment="Center">
                         <TextBlock Text="Start" Width="32" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11"/>
-                        <TextBox x:Name="TxtMarkStartInput" Width="52" Height="24" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
+                        <!-- Style="{x:Null}" opts these two OUT of the dark-
+                             themed TextBox style below (custom
+                             ControlTemplate + PART_ContentHost) and falls
+                             back to the plain system TextBox chrome. The
+                             only other TextBox in this window, TxtRootPath,
+                             is IsReadOnly - meaning that custom template has
+                             never actually been exercised for real typing
+                             before now, and typing into these two wasn't
+                             working. This isolates whether the custom
+                             template itself was the cause. -->
+                        <TextBox x:Name="TxtMarkStartInput" Style="{x:Null}" Width="56" Height="26" Padding="6,3" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
                     </StackPanel>
 
                     <!-- End point display - same as Start, mirrored. -->
                     <StackPanel x:Name="PnlMarkerEndRow" Orientation="Horizontal" Margin="0,6,0,0" VerticalAlignment="Center">
                         <TextBlock Text="End" Width="32" VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}" FontSize="11"/>
-                        <TextBox x:Name="TxtMarkEndInput" Width="52" Height="24" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
+                        <TextBox x:Name="TxtMarkEndInput" Style="{x:Null}" Width="56" Height="26" Padding="6,3" VerticalContentAlignment="Center" FontSize="11" Margin="4,0,0,0" ToolTip="Type a time (m:ss) and press Enter"/>
                     </StackPanel>
 
                     <!-- Shared editing controls - act on whichever handle
