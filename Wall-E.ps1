@@ -1929,7 +1929,7 @@ $VidPreview.Add_MediaFailed({
 # fight the user's own drag by snapping it back to the start on every tick.
 $script:PreviewMarkerTimer.Add_Tick({
     if ($MarkerBar.Visibility -ne 'Visible' -or $script:MarkerDurationSeconds -le 0) { return }
-    if (-not $script:MarkerDraggingStart -and -not $script:MarkerDraggingEnd) {
+    if (-not $script:MarkerDraggingStart -and -not $script:MarkerDraggingEnd -and -not $script:VidPreviewPaused) {
         if ($script:MarkerHasTrim -and $VidPreview.Position.TotalSeconds -ge $script:MarkerEndSeconds) {
             $VidPreview.Position = [TimeSpan]::FromSeconds($script:MarkerStartSeconds)
         }
@@ -2093,15 +2093,32 @@ $BtnPreviewMarker.Add_Click({
     Sync-PreviewFrameToPosition -Seconds $script:MarkerStartSeconds
 })
 
-# "Set Here" - use wherever the preview is CURRENTLY sitting (paused or
-# playing) as whichever point is currently selected (see
-# $script:MarkerSelectedSide / Update-MarkerSelectionVisual - set by
-# clicking or dragging either handle), instead of dragging a handle to
-# it. Pair with click-to-seek/Play-Pause above to land on the exact frame
-# you want first, then press this to mark it - much more precise than
-# dragging on a short track for a long video.
+# "Set Here" - use wherever the preview is CURRENTLY sitting as whichever
+# point is currently selected (see $script:MarkerSelectedSide /
+# Update-MarkerSelectionVisual - set by clicking or dragging either
+# handle), instead of dragging a handle to it. Pair with click-to-seek/
+# Play-Pause above to land on the exact frame you want first, then press
+# this to mark it - much more precise than dragging on a short track for
+# a long video.
+#
+# Pauses first (if not already paused), before ever reading Position.
+# Without this, clicking while still playing is a race against two
+# things that can move the playhead out from under you between the
+# click and the read: normal playback advancing, and - when the
+# selected side is End and the video happens to already be sitting at
+# or past the current end marker - $script:PreviewMarkerTimer's own
+# loop-reset (see its Add_Tick above) snapping Position back to Start
+# first. Pausing collapses both windows to zero: the frame you saw is
+# the exact frame that gets read and saved, whether or not you
+# remembered to pause manually beforehand.
 $BtnSetSelectedHere.Add_Click({
     if ($script:MarkerDurationSeconds -le 0) { return }
+    if (-not $script:VidPreviewPaused) {
+        $VidPreview.Pause()
+        $script:VidPreviewPaused = $true
+        $BtnPlayPause.Content = "▶"
+        $BtnPlayPause.ToolTip = "Resume preview"
+    }
     $pos = $VidPreview.Position.TotalSeconds
     if ($script:MarkerSelectedSide -eq 'End') {
         $script:MarkerEndSeconds = [Math]::Min($script:MarkerDurationSeconds, [Math]::Max($pos, $script:MarkerStartSeconds + 1))
